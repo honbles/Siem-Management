@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"opensiem/management/internal/auth"
-	"opensiem/management/internal/config"
-	"opensiem/management/internal/notify"
-	"opensiem/management/internal/store"
+	"obsidianwatch/management/internal/auth"
+	"obsidianwatch/management/internal/config"
+	"obsidianwatch/management/internal/notify"
+	"obsidianwatch/management/internal/store"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -154,12 +154,12 @@ func handleExportEvents(db *store.DB) http.HandlerFunc {
 		}
 		if format == "json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="opensiem-events-%s.json"`, time.Now().Format("20060102-150405")))
+			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="obsidianwatch-events-%s.json"`, time.Now().Format("20060102-150405")))
 			json.NewEncoder(w).Encode(events)
 			return
 		}
 		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="opensiem-events-%s.csv"`, time.Now().Format("20060102-150405")))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="obsidianwatch-events-%s.csv"`, time.Now().Format("20060102-150405")))
 		cw := csv.NewWriter(w)
 		cw.Write([]string{"time", "severity", "host", "os", "event_type", "source", "user_name", "process_name", "command_line", "src_ip", "src_port", "dst_ip", "dst_port", "proto"})
 		for _, e := range events {

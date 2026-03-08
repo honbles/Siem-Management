@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"opensiem/management/internal/notify"
-	"opensiem/management/internal/store"
+	"obsidianwatch/management/internal/notify"
+	"obsidianwatch/management/internal/store"
 )
 
 type AlertEngine struct {

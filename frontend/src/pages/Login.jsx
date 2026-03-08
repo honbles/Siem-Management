@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import logo from '../assets/logo.svg'
 import { Shield } from 'lucide-react'
 import api from '../api/client'
 
@@ -33,7 +34,7 @@ export default function Login({ onLogin }) {
               <Shield className="text-siem-accent" size={32} />
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-siem-text">OpenSIEM</h1>
+          <h1 className="text-2xl font-bold text-siem-text">ObsidianWatch</h1>
           <p className="text-siem-muted text-sm mt-1">Management Platform</p>
         </div>
 

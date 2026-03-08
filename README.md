@@ -1,4 +1,4 @@
-# OpenSIEM Management Platform
+# ObsidianWatch Management Platform
 
 > Browser-based SIEM dashboard — real-time event monitoring, fleet management, automated alerting with email notifications, and full analyst workflow.
 
@@ -8,7 +8,7 @@
 
 ## Table of Contents
 
-- [What is OpenSIEM](#what-is-opensiem)
+- [What is ObsidianWatch](#what-is-obsidianwatch)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
@@ -25,9 +25,9 @@
 
 ---
 
-## What is OpenSIEM
+## What is ObsidianWatch
 
-OpenSIEM is a lightweight, self-hosted Security Information and Event Management (SIEM) stack. It consists of three components:
+ObsidianWatch is a lightweight, self-hosted Security Information and Event Management (SIEM) stack. It consists of three components:
 
 | Component | Role |
 |---|---|
@@ -60,7 +60,7 @@ mgmt-api :8080
 ## Prerequisites
 
 - Docker 24+ and Docker Compose v2
-- Agent backend already running (`opensiem-db` healthy)
+- Agent backend already running (`obsidianwatch-db` healthy)
 - Ports `80` and `8080` available
 - Agent backend database password
 
@@ -69,7 +69,7 @@ mgmt-api :8080
 ## Quick Start
 
 ```bash
-unzip opensiem-management.zip
+unzip obsidianwatch-management.zip
 cd management/backend/docker
 nano server.yaml         # set database.password and auth.jwt_secret
 sudo docker compose up -d --build
@@ -104,7 +104,7 @@ smtp:
   port:         587
   username:     "you@gmail.com"
   password:     "app-password"
-  from:         "OpenSIEM <you@gmail.com>"
+  from:         "ObsidianWatch <you@gmail.com>"
   to:
     - "soc@yourcompany.com"
   min_severity: 4            # 1=info 2=low 3=medium 4=high 5=critical
@@ -134,7 +134,7 @@ smtp:
   port: 587
   username: "you@gmail.com"
   password: "abcd efgh ijkl mnop"
-  from: "OpenSIEM Alerts <you@gmail.com>"
+  from: "ObsidianWatch Alerts <you@gmail.com>"
   to: ["soc@yourcompany.com"]
   min_severity: 4
   use_tls: true
@@ -149,7 +149,7 @@ smtp:
   port: 587
   username: "you@company.com"
   password: "your-password"
-  from: "OpenSIEM Alerts <you@company.com>"
+  from: "ObsidianWatch Alerts <you@company.com>"
   to: ["soc@yourcompany.com"]
   min_severity: 4
   use_tls: true
@@ -337,8 +337,8 @@ sudo docker compose up -d --build
 sudo docker compose restart mgmt-api
 
 # Logs
-sudo docker logs opensiem-mgmt-api -f
-sudo docker logs opensiem-mgmt-ui  -f
+sudo docker logs obsidianwatch-mgmt-api -f
+sudo docker logs obsidianwatch-mgmt-ui  -f
 
 # Health check
 curl -s http://localhost:8080/health
@@ -352,7 +352,7 @@ sudo docker compose down
 ```bash
 pip3 install bcrypt --break-system-packages
 HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'newpassword', bcrypt.gensalt()).decode())")
-sudo docker exec opensiem-db psql -U opensiem -d opensiem \
+sudo docker exec obsidianwatch-db psql -U obsidianwatch -d obsidianwatch \
   -c "UPDATE users SET password_hash='$HASH', password_changed=TRUE WHERE username='admin';"
 ```
 

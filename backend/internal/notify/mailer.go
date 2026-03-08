@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"opensiem/management/internal/config"
-	"opensiem/management/internal/store"
+	"obsidianwatch/management/internal/config"
+	"obsidianwatch/management/internal/store"
 )
 
 type Mailer struct {
@@ -35,9 +35,9 @@ func (m *Mailer) SendAlert(alert store.Alert) error {
 		sev = fmt.Sprintf("%d", alert.Severity)
 	}
 
-	subject := fmt.Sprintf("[OpenSIEM] [%s] %s", sev, alert.Title)
+	subject := fmt.Sprintf("[ObsidianWatch] [%s] %s", sev, alert.Title)
 
-	body := fmt.Sprintf(`OpenSIEM Alert Notification
+	body := fmt.Sprintf(`ObsidianWatch Alert Notification
 ===========================
 
 Title:      %s
@@ -51,8 +51,8 @@ Description:
 %s
 
 ---
-This is an automated alert from OpenSIEM Management Platform.
-To manage this alert, log in to your OpenSIEM dashboard.
+This is an automated alert from ObsidianWatch Management Platform.
+To manage this alert, log in to your ObsidianWatch dashboard.
 `,
 		alert.Title,
 		sev, alert.Severity,
@@ -124,8 +124,8 @@ func (m *Mailer) TestConnection() error {
 		return fmt.Errorf("SMTP is not enabled or not configured")
 	}
 	return m.SendAlert(store.Alert{
-		Title:       "OpenSIEM SMTP Test",
-		Description: "This is a test email from OpenSIEM to verify your SMTP configuration is working correctly.",
+		Title:       "ObsidianWatch SMTP Test",
+		Description: "This is a test email from ObsidianWatch to verify your SMTP configuration is working correctly.",
 		Severity:    1,
 		Status:      "open",
 		Host:        "system",

@@ -1,4 +1,4 @@
-# Contributing to OpenSIEM Management Platform
+# Contributing to ObsidianWatch Management Platform
 
 Thank you for your interest in contributing. This document covers development setup, conventions, and how to submit changes.
 
@@ -11,8 +11,8 @@ Thank you for your interest in contributing. This document covers development se
 **Prerequisites:** Go 1.22+, Docker (for a local TimescaleDB)
 
 ```bash
-git clone https://github.com/honbles/opensiem-management.git
-cd opensiem-management/backend
+git clone https://github.com/honbles/obsidianwatch-management.git
+cd obsidianwatch-management/backend
 
 # Copy and configure
 cp docker/server.yaml server.yaml
@@ -163,7 +163,7 @@ The management platform has its own `schema_migrations` table, separate from the
 - Add `event_id` and `channel` as query filter parameters on `GET /api/v1/events`
 - Add a Settings page (change password, show current API token, theme toggle)
 - Write integration tests using `testcontainers-go` against a real TimescaleDB
-- Support environment variable overrides for all config fields (e.g. `OPENSIEM_JWT_SECRET`)
+- Support environment variable overrides for all config fields (e.g. `OBSIDIANWATCH_JWT_SECRET`)
 - Add role-based access control — restrict `analyst` role from closing others' alerts
 - Add a per-agent detail page showing that agent's recent events and stats
 
@@ -176,7 +176,7 @@ Open a GitHub issue with:
 - OS and Docker version
 - Go version (`go version`) or Node version (`node --version`)
 - Relevant section of `server.yaml` (redact passwords and JWT secret)
-- Container logs: `sudo docker logs opensiem-mgmt-api` and `sudo docker logs opensiem-mgmt-ui`
+- Container logs: `sudo docker logs obsidianwatch-mgmt-api` and `sudo docker logs obsidianwatch-mgmt-ui`
 - Steps to reproduce
 
 ---

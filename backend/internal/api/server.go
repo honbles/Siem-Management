@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"opensiem/management/internal/auth"
-	"opensiem/management/internal/config"
-	"opensiem/management/internal/notify"
-	"opensiem/management/internal/store"
+	"obsidianwatch/management/internal/auth"
+	"obsidianwatch/management/internal/config"
+	"obsidianwatch/management/internal/notify"
+	"obsidianwatch/management/internal/store"
 )
 
 type Server struct {

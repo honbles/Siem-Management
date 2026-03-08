@@ -8,8 +8,8 @@ server:
 database:
   host:     "localhost"
   port:     5432
-  name:     "opensiem"
-  user:     "opensiem"
+  name:     "obsidianwatch"
+  user:     "obsidianwatch"
   password: "changeme"
   ssl_mode: "disable"
   max_open_conns:    25

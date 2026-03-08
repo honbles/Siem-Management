@@ -99,7 +99,7 @@ export default function Settings() {
   port: 587
   username: "you@gmail.com"
   password: "your-app-password"
-  from: "OpenSIEM <you@gmail.com>"
+  from: "ObsidianWatch <you@gmail.com>"
   to:
     - "soc@yourcompany.com"
   min_severity: 4
@@ -112,14 +112,14 @@ export default function Settings() {
 
       {/* About */}
       <div className="bg-siem-surface border border-siem-border rounded-xl p-5">
-        <div className="text-sm font-semibold text-siem-text mb-3">About OpenSIEM</div>
+        <div className="text-sm font-semibold text-siem-text mb-3">About ObsidianWatch</div>
         <div className="space-y-1 text-xs text-siem-muted">
           <div>Management Platform <span className="text-siem-accent">v0.3.0</span></div>
           <div>Agent <span className="text-siem-accent">v0.2.0</span></div>
           <div>License <span className="text-siem-accent">MIT</span></div>
           <div className="pt-2">
-            <a href="https://github.com/honbles/opensiem" target="_blank" rel="noopener noreferrer"
-              className="text-siem-accent hover:underline">github.com/honbles/opensiem</a>
+            <a href="https://github.com/honbles/obsidianwatch" target="_blank" rel="noopener noreferrer"
+              className="text-siem-accent hover:underline">github.com/honbles/obsidianwatch</a>
           </div>
         </div>
       </div>

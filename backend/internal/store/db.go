@@ -8,7 +8,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"opensiem/management/internal/config"
+	"obsidianwatch/management/internal/config"
 )
 
 type DB struct {

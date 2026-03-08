@@ -1,6 +1,6 @@
-# OpenSIEM Management Platform
+# ObsidianWatch Management Platform
 # Runs alongside the agent backend on the same server
-# Connects to the existing opensiem-db via the backend's Docker network
+# Connects to the existing obsidianwatch-db via the backend's Docker network
 
 services:
 
@@ -8,7 +8,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: opensiem-mgmt-api
+    container_name: obsidianwatch-mgmt-api
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -27,7 +27,7 @@ services:
     build:
       context: ../../frontend
       dockerfile: Dockerfile
-    container_name: opensiem-mgmt-ui
+    container_name: obsidianwatch-mgmt-ui
     restart: unless-stopped
     ports:
       - "80:80"

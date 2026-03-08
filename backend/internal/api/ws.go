@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"opensiem/management/internal/store"
+	"obsidianwatch/management/internal/store"
 )
 
 var upgrader = websocket.Upgrader{

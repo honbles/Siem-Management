@@ -89,8 +89,8 @@ func defaults() *Config {
 		Database: DatabaseConfig{
 			Host:            "localhost",
 			Port:            5432,
-			Name:            "opensiem",
-			User:            "opensiem",
+			Name:            "obsidianwatch",
+			User:            "obsidianwatch",
 			SSLMode:         "disable",
 			MaxOpenConns:    25,
 			MaxIdleConns:    10,

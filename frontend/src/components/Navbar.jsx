@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Shield, LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Key, Settings, Search, Zap } from 'lucide-react'
+import { LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Settings, Search, Zap } from 'lucide-react'
+import logo from '../assets/logo.svg'
 
 const links = [
   { to: '/',             label: 'Dashboard',    icon: LayoutDashboard },
@@ -30,11 +31,11 @@ export function Navbar({ user }) {
 
   return (
     <aside className="w-56 min-h-screen bg-siem-surface border-r border-siem-border flex flex-col">
-      <div className="flex items-center gap-2 px-4 py-5 border-b border-siem-border">
-        <Shield className="text-siem-accent" size={22} />
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-siem-border">
+        <img src={logo} alt="ObsidianWatch" className="w-9 h-9 shrink-0" />
         <div>
-          <span className="font-bold text-siem-text text-base tracking-tight">OpenSIEM</span>
-          <div className="text-[10px] text-siem-muted">v0.3.0</div>
+          <div className="font-bold text-siem-text text-sm tracking-wide leading-tight">ObsidianWatch</div>
+          <div className="text-[10px] text-siem-muted tracking-widest uppercase">v0.3.1</div>
         </div>
       </div>
 

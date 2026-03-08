@@ -1,4 +1,4 @@
-# OpenSIEM Management Platform — Runtime Config
+# ObsidianWatch Management Platform — Runtime Config
 # Edit this file then restart: sudo docker compose restart mgmt-api
 
 server:
@@ -11,8 +11,8 @@ server:
 database:
   host:     "timescaledb"      # Docker service name — do not change
   port:     5432
-  name:     "opensiem"
-  user:     "opensiem"
+  name:     "obsidianwatch"
+  user:     "obsidianwatch"
   password: "changeme"         # ← MUST match agent backend POSTGRES_PASSWORD
   ssl_mode: "disable"
   max_open_conns:    10
@@ -33,7 +33,7 @@ smtp:
   port:         587
   username:     "you@gmail.com"
   password:     "your-app-password"    # Gmail: use App Password, not account password
-  from:         "OpenSIEM <you@gmail.com>"
+  from:         "ObsidianWatch <you@gmail.com>"
   to:
     - "security-team@yourcompany.com"
     # - "soc@yourcompany.com"          # add more recipients here

@@ -1,6 +1,6 @@
-# OpenSIEM — Search & Detection Reference
+# ObsidianWatch — Search & Detection Reference
 
-This document covers the Search system (100 saved queries) and the Threat Detection Library (35+ automated signatures) built into OpenSIEM Management Platform v0.3.0.
+This document covers the Search system (100 saved queries) and the Threat Detection Library (35+ automated signatures) built into ObsidianWatch Management Platform v0.3.0.
 
 ---
 
