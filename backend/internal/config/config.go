@@ -12,6 +12,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	Auth     AuthConfig     `yaml:"auth"`
+	SMTP     SMTPConfig     `yaml:"smtp"`
 	Log      LogConfig      `yaml:"log"`
 }
 
@@ -42,8 +43,20 @@ func (d DatabaseConfig) DSN() string {
 }
 
 type AuthConfig struct {
-	JWTSecret      string        `yaml:"jwt_secret"`
-	TokenDuration  time.Duration `yaml:"token_duration"`
+	JWTSecret     string        `yaml:"jwt_secret"`
+	TokenDuration time.Duration `yaml:"token_duration"`
+}
+
+type SMTPConfig struct {
+	Enabled    bool     `yaml:"enabled"`
+	Host       string   `yaml:"host"`
+	Port       int      `yaml:"port"`
+	Username   string   `yaml:"username"`
+	Password   string   `yaml:"password"`
+	From       string   `yaml:"from"`
+	To         []string `yaml:"to"`
+	MinSeverity int     `yaml:"min_severity"`
+	UseTLS     bool     `yaml:"use_tls"`
 }
 
 type LogConfig struct {
@@ -85,6 +98,12 @@ func defaults() *Config {
 		},
 		Auth: AuthConfig{
 			TokenDuration: 24 * time.Hour,
+		},
+		SMTP: SMTPConfig{
+			Enabled:     false,
+			Port:        587,
+			MinSeverity: 4,
+			UseTLS:      true,
 		},
 		Log: LogConfig{Level: "info", Format: "json"},
 	}

@@ -10,6 +10,7 @@ import (
 
 	"opensiem/management/internal/auth"
 	"opensiem/management/internal/config"
+	"opensiem/management/internal/notify"
 	"opensiem/management/internal/store"
 )
 
@@ -18,6 +19,7 @@ type Server struct {
 	db     *store.DB
 	hub    *Hub
 	jwt    *auth.JWTService
+	mailer *notify.Mailer
 	logger *slog.Logger
 	http   *http.Server
 }
@@ -25,7 +27,8 @@ type Server struct {
 func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	jwt := auth.NewJWTService(cfg.Auth.JWTSecret, cfg.Auth.TokenDuration)
 	hub := NewHub(db, logger)
-	s := &Server{cfg: cfg, db: db, hub: hub, jwt: jwt, logger: logger}
+	mailer := notify.NewMailer(cfg.SMTP)
+	s := &Server{cfg: cfg, db: db, hub: hub, jwt: jwt, mailer: mailer, logger: logger}
 
 	mux := http.NewServeMux()
 
@@ -35,44 +38,49 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 
 	// Protected
 	protected := http.NewServeMux()
-	protected.HandleFunc("GET /auth/me",                        handleMe)
-	protected.HandleFunc("PATCH /auth/password",               handleChangePassword(db))
+	protected.HandleFunc("GET /auth/me",            handleMe)
+	protected.HandleFunc("PATCH /auth/password",    handleChangePassword(db))
 
 	// Events
-	protected.HandleFunc("GET /api/v1/events",                 handleListEvents(db))
-	protected.HandleFunc("GET /api/v1/events/{id}",            handleGetEvent(db))
-	protected.HandleFunc("GET /api/v1/events/export",          handleExportEvents(db))
+	protected.HandleFunc("GET /api/v1/events",              handleListEvents(db))
+	protected.HandleFunc("GET /api/v1/events/export",       handleExportEvents(db))
+	protected.HandleFunc("GET /api/v1/events/{id}",         handleGetEvent(db))
 
 	// Agents
-	protected.HandleFunc("GET /api/v1/agents",                 handleListAgents(db))
-	protected.HandleFunc("GET /api/v1/agents/{id}",            handleGetAgent(db))
+	protected.HandleFunc("GET /api/v1/agents",              handleListAgents(db))
+	protected.HandleFunc("GET /api/v1/agents/{id}",         handleGetAgent(db))
 
 	// Alerts
-	protected.HandleFunc("GET /api/v1/alerts",                 handleListAlerts(db))
-	protected.HandleFunc("POST /api/v1/alerts",                handleCreateAlert(db))
-	protected.HandleFunc("PATCH /api/v1/alerts/{id}/acknowledge", handleAcknowledgeAlert(db))
-	protected.HandleFunc("PATCH /api/v1/alerts/{id}/close",    handleCloseAlert(db))
+	protected.HandleFunc("GET /api/v1/alerts",                        handleListAlerts(db))
+	protected.HandleFunc("POST /api/v1/alerts",                       handleCreateAlert(db, mailer))
+	protected.HandleFunc("GET /api/v1/alerts/{id}",                   handleGetAlert(db))
+	protected.HandleFunc("PATCH /api/v1/alerts/{id}/acknowledge",     handleAcknowledgeAlert(db))
+	protected.HandleFunc("PATCH /api/v1/alerts/{id}/close",           handleCloseAlert(db))
 
 	// Alert Rules
-	protected.HandleFunc("GET /api/v1/alert-rules",            handleListAlertRules(db))
-	protected.HandleFunc("POST /api/v1/alert-rules",           handleCreateAlertRule(db))
-	protected.HandleFunc("PUT /api/v1/alert-rules/{id}",       handleUpdateAlertRule(db))
-	protected.HandleFunc("DELETE /api/v1/alert-rules/{id}",    handleDeleteAlertRule(db))
+	protected.HandleFunc("GET /api/v1/alert-rules",         handleListAlertRules(db))
+	protected.HandleFunc("POST /api/v1/alert-rules",        handleCreateAlertRule(db))
+	protected.HandleFunc("PUT /api/v1/alert-rules/{id}",    handleUpdateAlertRule(db))
+	protected.HandleFunc("DELETE /api/v1/alert-rules/{id}", handleDeleteAlertRule(db))
 
-	// Users (admin only — enforced in handlers)
-	protected.HandleFunc("GET /api/v1/users",                  handleListUsers(db))
-	protected.HandleFunc("POST /api/v1/users",                 handleCreateUser(db))
-	protected.HandleFunc("DELETE /api/v1/users/{id}",          handleDeleteUser(db))
+	// Users
+	protected.HandleFunc("GET /api/v1/users",               handleListUsers(db))
+	protected.HandleFunc("POST /api/v1/users",              handleCreateUser(db))
+	protected.HandleFunc("DELETE /api/v1/users/{id}",       handleDeleteUser(db))
 
 	// Audit log
-	protected.HandleFunc("GET /api/v1/audit-log",              handleListAuditLog(db))
+	protected.HandleFunc("GET /api/v1/audit-log",           handleListAuditLog(db))
 
 	// Stats & Threat Intel
-	protected.HandleFunc("GET /api/v1/stats",                  handleStats(db))
-	protected.HandleFunc("GET /api/v1/threat-intel",           handleThreatIntel(db))
+	protected.HandleFunc("GET /api/v1/stats",               handleStats(db))
+	protected.HandleFunc("GET /api/v1/threat-intel",        handleThreatIntel(db))
+
+	// Settings
+	protected.HandleFunc("GET /api/v1/settings/smtp",       handleGetSMTPSettings(cfg))
+	protected.HandleFunc("POST /api/v1/settings/smtp/test", handleTestSMTP(mailer))
 
 	// WebSocket
-	protected.HandleFunc("GET /ws/events",                     hub.ServeWS)
+	protected.HandleFunc("GET /ws/events", hub.ServeWS)
 
 	guard := auth.Middleware(jwt)
 	mux.Handle("/api/", guard(protected))
@@ -91,7 +99,7 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	engine := NewAlertEngine(s.db, s.logger)
+	engine := NewAlertEngine(s.db, s.mailer, s.logger)
 	go engine.Run(ctx)
 	go s.hub.Run(ctx)
 	s.logger.Info("management server starting", "addr", s.cfg.Server.ListenAddr)

@@ -7,16 +7,18 @@ import (
 	"strings"
 	"time"
 
+	"opensiem/management/internal/notify"
 	"opensiem/management/internal/store"
 )
 
 type AlertEngine struct {
 	db     *store.DB
+	mailer *notify.Mailer
 	logger *slog.Logger
 }
 
-func NewAlertEngine(db *store.DB, logger *slog.Logger) *AlertEngine {
-	return &AlertEngine{db: db, logger: logger}
+func NewAlertEngine(db *store.DB, mailer *notify.Mailer, logger *slog.Logger) *AlertEngine {
+	return &AlertEngine{db: db, mailer: mailer, logger: logger}
 }
 
 func (e *AlertEngine) Run(ctx context.Context) {
@@ -50,13 +52,10 @@ func (e *AlertEngine) evaluate(ctx context.Context) {
 	created := 0
 	for _, ev := range events {
 		eventIDStr := fmt.Sprintf("%v", ev.EventID)
-
-		// Check against each rule
 		for _, rule := range rules {
 			if !matchesRule(ev, rule) {
 				continue
 			}
-			// Use rule+event combo as dedup key
 			dedupKey := fmt.Sprintf("rule:%d:event:%s", rule.ID, ev.ID)
 			exists, _ := e.db.AlertExists(ctx, dedupKey)
 			if exists {
@@ -76,7 +75,7 @@ func (e *AlertEngine) evaluate(ctx context.Context) {
 				desc += fmt.Sprintf(" | EventID: %s", eventIDStr)
 			}
 
-			e.db.CreateAlert(ctx, store.Alert{
+			alert := store.Alert{
 				Title:       title,
 				Description: desc,
 				Severity:    ev.Severity,
@@ -84,8 +83,26 @@ func (e *AlertEngine) evaluate(ctx context.Context) {
 				Host:        ev.Host,
 				EventType:   ev.EventType,
 				EventID:     dedupKey,
-			})
+			}
+
+			id, err := e.db.CreateAlert(ctx, alert)
+			if err != nil {
+				continue
+			}
+			alert.CreatedAt = time.Now()
 			created++
+
+			// Send email if severity meets threshold
+			if e.mailer.Enabled() && ev.Severity >= e.mailer.MinSeverity() {
+				go func(a store.Alert, alertID int64) {
+					a.ID = alertID
+					if err := e.mailer.SendAlert(a); err != nil {
+						e.logger.Warn("alert engine: email failed", "alert_id", alertID, "err", err)
+					} else {
+						e.logger.Info("alert engine: email sent", "alert_id", alertID)
+					}
+				}(alert, id)
+			}
 		}
 	}
 	if created > 0 {
@@ -94,25 +111,20 @@ func (e *AlertEngine) evaluate(ctx context.Context) {
 }
 
 func matchesRule(ev store.Event, rule store.AlertRule) bool {
-	// Severity threshold
 	if ev.Severity < rule.Severity {
 		return false
 	}
-	// Event type filter
 	if rule.EventType != "" && ev.EventType != rule.EventType {
 		return false
 	}
-	// Host match (case-insensitive contains)
 	if rule.HostMatch != "" && !strings.Contains(strings.ToLower(ev.Host), strings.ToLower(rule.HostMatch)) {
 		return false
 	}
-	// User match
 	if rule.UserMatch != "" {
 		if ev.UserName == nil || !strings.Contains(strings.ToLower(*ev.UserName), strings.ToLower(rule.UserMatch)) {
 			return false
 		}
 	}
-	// Process match
 	if rule.ProcessMatch != "" {
 		if ev.ProcessName == nil || !strings.Contains(strings.ToLower(*ev.ProcessName), strings.ToLower(rule.ProcessMatch)) {
 			return false

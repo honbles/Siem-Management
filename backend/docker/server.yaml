@@ -1,6 +1,5 @@
 # OpenSIEM Management Platform — Runtime Config
-# Mounted into the container at /app/server.yaml
-# Edit this file, NOT configs/server.yaml
+# Edit this file then restart: sudo docker compose restart mgmt-api
 
 server:
   listen_addr: ":8080"
@@ -10,8 +9,7 @@ server:
     - "*"   # tighten to http://192.168.1.140 in production
 
 database:
-  # Uses the existing opensiem-db container via shared Docker network
-  host:     "timescaledb"      # Docker service name from the agent backend compose
+  host:     "timescaledb"      # Docker service name — do not change
   port:     5432
   name:     "opensiem"
   user:     "opensiem"
@@ -25,6 +23,22 @@ auth:
   # Generate with: openssl rand -hex 32
   jwt_secret:     "changeme-generate-with-openssl-rand-hex-32"
   token_duration: "24h"
+
+# ── Email Alerts (optional) ───────────────────────────────────────────────────
+# Set enabled: true and fill in your SMTP details to receive email alerts.
+# Supports Gmail, Office 365, SendGrid, or any SMTP relay.
+smtp:
+  enabled:      false
+  host:         "smtp.gmail.com"       # e.g. smtp.gmail.com / smtp.office365.com
+  port:         587
+  username:     "you@gmail.com"
+  password:     "your-app-password"    # Gmail: use App Password, not account password
+  from:         "OpenSIEM <you@gmail.com>"
+  to:
+    - "security-team@yourcompany.com"
+    # - "soc@yourcompany.com"          # add more recipients here
+  min_severity: 4                      # 1=info 2=low 3=medium 4=high 5=critical
+  use_tls:      true
 
 log:
   level:  "info"

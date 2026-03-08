@@ -11,6 +11,7 @@ import AlertRules from './pages/AlertRules'
 import Users from './pages/Users'
 import AuditLog from './pages/AuditLog'
 import ChangePassword from './pages/ChangePassword'
+import Settings from './pages/Settings'
 
 function Layout({ user, children }) {
   return (
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/threat-intel" element={<ProtectedRoute><ThreatIntel /></ProtectedRoute>} />
         <Route path="/users"        element={<ProtectedRoute adminOnly><Users /></ProtectedRoute>} />
         <Route path="/audit-log"    element={<ProtectedRoute><AuditLog /></ProtectedRoute>} />
+        <Route path="/settings"      element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="*"             element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

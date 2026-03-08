@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"opensiem/management/internal/auth"
+	"opensiem/management/internal/config"
+	"opensiem/management/internal/notify"
 	"opensiem/management/internal/store"
 )
 
@@ -246,7 +248,7 @@ func handleListAlerts(db *store.DB) http.HandlerFunc {
 	}
 }
 
-func handleCreateAlert(db *store.DB) http.HandlerFunc {
+func handleCreateAlert(db *store.DB, mailer *notify.Mailer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims := auth.GetClaims(r)
 		var body struct {
@@ -276,6 +278,13 @@ func handleCreateAlert(db *store.DB) http.HandlerFunc {
 			return
 		}
 		db.WriteAudit(r.Context(), claims.Username, "create_alert", fmt.Sprintf("alert:%d", id), body.Title, clientIP(r))
+		if mailer.Enabled() {
+			go mailer.SendAlert(store.Alert{
+				ID: id, Title: body.Title, Description: body.Description,
+				Severity: body.Severity, Host: body.Host, EventType: body.EventType,
+				Status: "open",
+			})
+		}
 		writeJSON(w, 201, map[string]interface{}{"id": id, "status": "created"})
 	}
 }
@@ -458,5 +467,61 @@ func handleThreatIntel(db *store.DB) http.HandlerFunc {
 		data, err := db.ThreatIntel(r.Context())
 		if err != nil { writeJSON(w, 500, map[string]string{"error": "query failed"}); return }
 		writeJSON(w, 200, data)
+	}
+}
+
+// ── Alert detail ──────────────────────────────────────────────────────────────
+
+func handleGetAlert(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid id"})
+			return
+		}
+		alert, err := db.GetAlert(r.Context(), id)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "alert not found"})
+			return
+		}
+		// Fetch related event if we have an event_id that looks like a real event UUID
+		var relatedEvent *store.Event
+		if alert.EventID != "" && !strings.HasPrefix(alert.EventID, "rule:") {
+			if ev, err := db.GetEventByID(r.Context(), alert.EventID); err == nil {
+				relatedEvent = ev
+			}
+		}
+		writeJSON(w, 200, map[string]interface{}{
+			"alert":         alert,
+			"related_event": relatedEvent,
+		})
+	}
+}
+
+// ── SMTP Settings ─────────────────────────────────────────────────────────────
+
+func handleGetSMTPSettings(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Return config without password
+		writeJSON(w, 200, map[string]interface{}{
+			"enabled":      cfg.SMTP.Enabled,
+			"host":         cfg.SMTP.Host,
+			"port":         cfg.SMTP.Port,
+			"username":     cfg.SMTP.Username,
+			"from":         cfg.SMTP.From,
+			"to":           cfg.SMTP.To,
+			"min_severity": cfg.SMTP.MinSeverity,
+			"use_tls":      cfg.SMTP.UseTLS,
+		})
+	}
+}
+
+func handleTestSMTP(mailer *notify.Mailer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := mailer.TestConnection(); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"status": "test email sent"})
 	}
 }

@@ -1,13 +1,14 @@
-# ── Build stage ──────────────────────────────────────────────────────────────
+# ── Build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.23-alpine AS builder
 
 WORKDIR /build
 COPY go.mod ./
-# Download dependencies (regenerates go.sum inside container)
-RUN go mod download 2>/dev/null || true
+# Remove stale go.sum and regenerate inside the container
+RUN rm -f go.sum && go mod download 2>/dev/null || true
 
 COPY . .
-RUN go mod tidy && \
+RUN rm -f go.sum && \
+    go mod tidy && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -o management-server ./cmd/server
 

@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Shield, LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Key } from 'lucide-react'
+import { Shield, LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Key, Settings } from 'lucide-react'
 
 const links = [
   { to: '/',             label: 'Dashboard',    icon: LayoutDashboard },
@@ -13,6 +13,7 @@ const links = [
 const adminLinks = [
   { to: '/users',        label: 'Users',        icon: Users },
   { to: '/audit-log',    label: 'Audit Log',    icon: ClipboardList },
+  { to: '/settings',     label: 'Settings',     icon: Settings },
 ]
 
 export function Navbar({ user }) {

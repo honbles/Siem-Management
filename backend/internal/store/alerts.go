@@ -117,3 +117,22 @@ func (db *DB) AlertExists(ctx context.Context, eventID string) (bool, error) {
 	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE event_id = $1`, eventID).Scan(&count)
 	return count > 0, err
 }
+
+// GetAlert fetches a single alert by ID.
+func (db *DB) GetAlert(ctx context.Context, id int64) (*Alert, error) {
+	var a Alert
+	err := db.QueryRowContext(ctx, `
+		SELECT id, created_at, title, description, severity, status,
+		       COALESCE(agent_id,''), COALESCE(host,''), COALESCE(event_type,''),
+		       COALESCE(event_id,''), acknowledged_by, acknowledged_at
+		FROM alerts WHERE id = $1
+	`, id).Scan(
+		&a.ID, &a.CreatedAt, &a.Title, &a.Description, &a.Severity, &a.Status,
+		&a.AgentID, &a.Host, &a.EventType, &a.EventID,
+		&a.AcknowledgedBy, &a.AcknowledgedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
