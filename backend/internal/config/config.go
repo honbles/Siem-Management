@@ -1,0 +1,101 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Config struct {
+	Server   ServerConfig   `yaml:"server"`
+	Database DatabaseConfig `yaml:"database"`
+	Auth     AuthConfig     `yaml:"auth"`
+	Log      LogConfig      `yaml:"log"`
+}
+
+type ServerConfig struct {
+	ListenAddr   string        `yaml:"listen_addr"`
+	ReadTimeout  time.Duration `yaml:"read_timeout"`
+	WriteTimeout time.Duration `yaml:"write_timeout"`
+	CORSOrigins  []string      `yaml:"cors_origins"`
+}
+
+type DatabaseConfig struct {
+	Host            string        `yaml:"host"`
+	Port            int           `yaml:"port"`
+	Name            string        `yaml:"name"`
+	User            string        `yaml:"user"`
+	Password        string        `yaml:"password"`
+	SSLMode         string        `yaml:"ssl_mode"`
+	MaxOpenConns    int           `yaml:"max_open_conns"`
+	MaxIdleConns    int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
+}
+
+func (d DatabaseConfig) DSN() string {
+	return fmt.Sprintf(
+		"host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
+		d.Host, d.Port, d.Name, d.User, d.Password, d.SSLMode,
+	)
+}
+
+type AuthConfig struct {
+	JWTSecret      string        `yaml:"jwt_secret"`
+	TokenDuration  time.Duration `yaml:"token_duration"`
+}
+
+type LogConfig struct {
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
+}
+
+func Load(path string) (*Config, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: open %q: %w", path, err)
+	}
+	defer f.Close()
+
+	cfg := defaults()
+	if err := yaml.NewDecoder(f).Decode(cfg); err != nil {
+		return nil, fmt.Errorf("config: decode: %w", err)
+	}
+	return cfg, validate(cfg)
+}
+
+func defaults() *Config {
+	return &Config{
+		Server: ServerConfig{
+			ListenAddr:   ":8080",
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			CORSOrigins:  []string{"*"},
+		},
+		Database: DatabaseConfig{
+			Host:            "localhost",
+			Port:            5432,
+			Name:            "opensiem",
+			User:            "opensiem",
+			SSLMode:         "disable",
+			MaxOpenConns:    25,
+			MaxIdleConns:    10,
+			ConnMaxLifetime: 5 * time.Minute,
+		},
+		Auth: AuthConfig{
+			TokenDuration: 24 * time.Hour,
+		},
+		Log: LogConfig{Level: "info", Format: "json"},
+	}
+}
+
+func validate(cfg *Config) error {
+	if cfg.Database.Password == "" {
+		return fmt.Errorf("database.password is required")
+	}
+	if cfg.Auth.JWTSecret == "" {
+		return fmt.Errorf("auth.jwt_secret is required")
+	}
+	return nil
+}

@@ -1,0 +1,25 @@
+server:
+  listen_addr: ":8080"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  cors_origins:
+    - "*"
+
+database:
+  host:     "localhost"
+  port:     5432
+  name:     "opensiem"
+  user:     "opensiem"
+  password: "changeme"
+  ssl_mode: "disable"
+  max_open_conns:    25
+  max_idle_conns:    10
+  conn_max_lifetime: "5m"
+
+auth:
+  jwt_secret:     "changeme"
+  token_duration: "24h"
+
+log:
+  level:  "info"
+  format: "json"

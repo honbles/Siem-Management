@@ -1,0 +1,31 @@
+# OpenSIEM Management Platform — Runtime Config
+# Mounted into the container at /app/server.yaml
+# Edit this file, NOT configs/server.yaml
+
+server:
+  listen_addr: ":8080"
+  read_timeout:  "30s"
+  write_timeout: "30s"
+  cors_origins:
+    - "*"   # tighten to http://192.168.1.140 in production
+
+database:
+  # Uses the existing opensiem-db container via shared Docker network
+  host:     "timescaledb"      # Docker service name from the agent backend compose
+  port:     5432
+  name:     "opensiem"
+  user:     "opensiem"
+  password: "changeme"         # ← MUST match agent backend POSTGRES_PASSWORD
+  ssl_mode: "disable"
+  max_open_conns:    10
+  max_idle_conns:    5
+  conn_max_lifetime: "5m"
+
+auth:
+  # Generate with: openssl rand -hex 32
+  jwt_secret:     "changeme-generate-with-openssl-rand-hex-32"
+  token_duration: "24h"
+
+log:
+  level:  "info"
+  format: "json"
