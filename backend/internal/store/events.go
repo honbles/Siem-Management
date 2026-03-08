@@ -69,21 +69,6 @@ type EventFilter struct {
 func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, error) {
 	where, args, n := []string{"1=1"}, []interface{}{}, 1
 
-	add := func(clause string, vals ...interface{}) {
-		// Replace each %d placeholder with n, n+1, ...
-		parts := strings.Split(clause, "$?")
-		built := ""
-		for i, p := range parts {
-			built += p
-			if i < len(parts)-1 {
-				built += fmt.Sprintf("$%d", n)
-				n++
-			}
-		}
-		where = append(where, built)
-		args = append(args, vals...)
-	}
-
 	if f.AgentID != "" {
 		where = append(where, fmt.Sprintf("agent_id = $%d", n)); args = append(args, f.AgentID); n++
 	}

@@ -191,15 +191,15 @@ var threatSignatures = []ThreatSig{
 		Description: "Outbound RDP connection (port 3389) — potential lateral movement.",
 		Severity: 4, MITRE: "T1021.001", Category: "Lateral Movement",
 		Match: func(ev store.Event) bool {
-			return ev.EventType == "network" && ev.DstPort != nil && *ev.DstPort == 3389
+			return ev.EventType == "network" && ev.DstPort != nil && *ev.DstPort == 3389 && ev.Severity >= 3
 		},
 	},
 	{
 		ID: "T1021.002", Name: "SMB Lateral Movement",
-		Description: "Outbound SMB connection (port 445) — potential lateral movement or ransomware spreading.",
+		Description: "Outbound SMB connection (port 445) with high severity — potential lateral movement or ransomware spreading.",
 		Severity: 4, MITRE: "T1021.002", Category: "Lateral Movement",
 		Match: func(ev store.Event) bool {
-			return ev.EventType == "network" && ev.DstPort != nil && *ev.DstPort == 445
+			return ev.EventType == "network" && ev.DstPort != nil && *ev.DstPort == 445 && ev.Severity >= 4
 		},
 	},
 	{
@@ -240,11 +240,10 @@ var threatSignatures = []ThreatSig{
 	},
 	{
 		ID: "T1543.003", Name: "New Service Created",
-		Description: "New Windows service installed — used for persistence.",
+		Description: "New Windows service installed via sc.exe or PowerShell — used for persistence.",
 		Severity: 4, MITRE: "T1543.003", Category: "Persistence",
 		Match: func(ev store.Event) bool {
-			return ev.EventType == "process" && containsAny(cl(ev), "sc create", "New-Service", "sc.exe create") ||
-				(ev.EventType == "registry" && containsAny(rk(ev), `SYSTEM\CurrentControlSet\Services`))
+			return ev.EventType == "process" && containsAny(cl(ev), "sc create", "New-Service", "sc.exe create")
 		},
 	},
 
@@ -331,7 +330,7 @@ var threatSignatures = []ThreatSig{
 		Match: func(ev store.Event) bool {
 			if ev.EventType != "network" || ev.DstPort == nil { return false }
 			p := *ev.DstPort
-			return p != 80 && p != 443 && p != 53 && p != 22 && p != 25 && p != 587 && p != 3389 && p != 445 && p > 1024
+			return ev.Severity >= 3 && p != 80 && p != 443 && p != 53 && p != 22 && p != 25 && p != 587 && p != 3389 && p != 445 && p != 8443 && p != 8080 && p != 8443 && p > 1024
 		},
 	},
 	{
@@ -457,7 +456,9 @@ func (e *DetectionEngine) evaluate(ctx context.Context) {
 		for _, sig := range threatSignatures {
 			if !sig.Match(ev) { continue }
 
-			dedupKey := fmt.Sprintf("sig:%s:event:%s", sig.ID, ev.ID)
+			// Dedup per host per signature per hour — prevents alert storms
+			hour := ev.Time.UTC().Format("2006010215")
+			dedupKey := fmt.Sprintf("sig:%s:host:%s:h:%s", sig.ID, ev.Host, hour)
 			exists, _ := e.db.AlertExists(ctx, dedupKey)
 			if exists { continue }
 
