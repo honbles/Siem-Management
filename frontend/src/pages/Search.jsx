@@ -1,12 +1,14 @@
 import { useState, useCallback, useRef } from 'react'
-import { Search as SearchIcon, Play, BookOpen, X, ChevronRight, Clock, Filter } from 'lucide-react'
-import { format } from 'date-fns'
+import { Search as SearchIcon, Play, BookOpen, X, ChevronRight, ExternalLink } from 'lucide-react'
+import { format, formatDistanceToNow } from 'date-fns'
 import api from '../api/client'
 import { SeverityBadge } from '../components/SeverityBadge'
 
 // ── 100 Saved Queries ─────────────────────────────────────────────────────────
+// DNS note: old agent stored DNS as event_type=network source=DNS-Client
+//           new agent (fixed) stores as event_type=dns. We search both via source filter.
 const SAVED_QUERIES = [
-  // PROCESS EXECUTION
+  // PROCESS
   { cat: 'Process', label: 'All processes on all hosts',          params: { event_type: 'process' } },
   { cat: 'Process', label: 'All PowerShell executions',           params: { event_type: 'process', process_name: 'powershell' } },
   { cat: 'Process', label: 'PowerShell encoded commands',         params: { event_type: 'process', command_line: '-enc' } },
@@ -57,15 +59,15 @@ const SAVED_QUERIES = [
   { cat: 'Network', label: 'All TCP connections',                 params: { event_type: 'network', proto: 'tcp' } },
   { cat: 'Network', label: 'High severity network events',        params: { event_type: 'network', severity: '4' } },
 
-  // DNS / WEBSITES
-  { cat: 'DNS / Web', label: 'All DNS queries (websites visited)',params: { event_type: 'dns' } },
-  { cat: 'DNS / Web', label: 'RustDesk DNS queries',              params: { event_type: 'dns', search: 'rustdesk' } },
-  { cat: 'DNS / Web', label: 'WPAD proxy discovery',             params: { event_type: 'dns', search: 'wpad' } },
-  { cat: 'DNS / Web', label: 'Urban VPN queries',                params: { event_type: 'dns', search: 'urban-vpn' } },
-  { cat: 'DNS / Web', label: 'ngrok tunnel queries',             params: { event_type: 'dns', search: 'ngrok' } },
+  // DNS — searches BOTH old (network+DNS-Client source) and new (event_type=dns) 
+  { cat: 'DNS / Web', label: 'All websites visited (DNS)',        params: { event_type: 'dns' }, fallback: { search: 'DNS-Client' } },
+  { cat: 'DNS / Web', label: 'RustDesk DNS queries',              params: { event_type: 'dns', search: 'rustdesk' }, fallback: { search: 'rustdesk' } },
+  { cat: 'DNS / Web', label: 'WPAD proxy discovery',             params: { event_type: 'dns', search: 'wpad' },     fallback: { search: 'wpad' } },
+  { cat: 'DNS / Web', label: 'Urban VPN queries',                params: { event_type: 'dns', search: 'urban-vpn' },fallback: { search: 'urban-vpn' } },
+  { cat: 'DNS / Web', label: 'ngrok tunnel queries',             params: { event_type: 'dns', search: 'ngrok' },    fallback: { search: 'ngrok' } },
   { cat: 'DNS / Web', label: 'Pastebin lookups',                 params: { event_type: 'dns', search: 'pastebin' } },
   { cat: 'DNS / Web', label: 'TOR / .onion domains',             params: { event_type: 'dns', search: '.onion' } },
-  { cat: 'DNS / Web', label: 'AnyDesk DNS queries',              params: { event_type: 'dns', search: 'anydesk' } },
+  { cat: 'DNS / Web', label: 'AnyDesk DNS queries',              params: { event_type: 'dns', search: 'anydesk' },  fallback: { search: 'anydesk' } },
   { cat: 'DNS / Web', label: 'TeamViewer DNS queries',           params: { event_type: 'dns', search: 'teamviewer' } },
   { cat: 'DNS / Web', label: 'High severity DNS events',         params: { event_type: 'dns', severity: '4' } },
 
@@ -101,9 +103,9 @@ const SAVED_QUERIES = [
   { cat: 'User', label: 'All logon events',                      params: { event_type: 'logon' } },
   { cat: 'User', label: 'Service account logons',                params: { event_type: 'logon', search: 'svc' } },
   { cat: 'User', label: 'Account creation (Event 4720)',         params: { event_id: '4720' } },
-  { cat: 'User', label: 'High severity user events',             params: { severity: '4', user_name: 'admin' } },
+  { cat: 'User', label: 'High severity user events',             params: { severity: '4' } },
 
-  // SYSMON / ADVANCED
+  // SYSMON
   { cat: 'Sysmon', label: 'All Sysmon events',                   params: { event_type: 'sysmon' } },
   { cat: 'Sysmon', label: 'Sysmon process creation (ID 1)',       params: { event_type: 'sysmon', event_id: '1' } },
   { cat: 'Sysmon', label: 'Sysmon network connection (ID 3)',     params: { event_type: 'sysmon', event_id: '3' } },
@@ -123,7 +125,6 @@ const SAVED_QUERIES = [
 
 const CATEGORIES = [...new Set(SAVED_QUERIES.map(q => q.cat))]
 
-// ── Quick search parser: "host:CORP-VAPT type:process user:admin" ─────────────
 function parseQuickSearch(raw) {
   const params = {}
   const tokens = raw.trim().split(/\s+/)
@@ -153,14 +154,151 @@ const TYPE_COLOR = {
   dns:'text-cyan-400', registry:'text-orange-400', file:'text-yellow-400',
   sysmon:'text-pink-400', raw:'text-gray-400',
 }
+const SEV_LABEL = { 1:'Info', 2:'Low', 3:'Medium', 4:'High', 5:'Critical' }
+const CHIP_LABEL = {
+  event_type:'Type', process_name:'Process', command_line:'Cmd', user_name:'User',
+  src_ip:'Src IP', dst_ip:'Dst IP', dst_port:'Port', proto:'Proto',
+  file_path:'File', reg_key:'Reg', channel:'Channel', event_id:'Event ID',
+  severity:'Sev ≥', search:'Search', host:'Host', image_path:'Image', agent_id:'Agent',
+}
 
-function ResultRow({ ev }) {
-  // Pick the most interesting value for the "detail" column based on event type
-  const detail = ev.command_line || ev.dst_ip || ev.reg_key || ev.file_path || ev.src_ip || '—'
-  const subject = ev.process_name || ev.reg_key || ev.file_path || ev.dst_ip || '—'
+// ── Event Detail Panel ───────────────────────────────────────────────────────
+function EventPanel({ eventId, onClose }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useState(() => {
+    setLoading(true)
+    api.get(`/api/v1/events/${eventId}`)
+      .then(r => setData(r.data))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false))
+  }, [eventId])
+
+  const ev = data?.event
+  const related = data?.related || []
+
+  const allFields = ev ? [
+    ['Time',          format(new Date(ev.time), 'yyyy-MM-dd HH:mm:ss')],
+    ['Host',          ev.host],
+    ['OS',            ev.os],
+    ['Agent ID',      ev.agent_id],
+    ['Event Type',    ev.event_type],
+    ['Source',        ev.source],
+    ['Severity',      ev.severity ? `${ev.severity} — ${SEV_LABEL[ev.severity]}` : null],
+    ['Event ID',      ev.event_id],
+    ['Channel',       ev.channel],
+    ['PID',           ev.pid],
+    ['PPID',          ev.ppid],
+    ['Process',       ev.process_name],
+    ['Image Path',    ev.image_path],
+    ['Command Line',  ev.command_line],
+    ['User',          ev.user_name],
+    ['Domain',        ev.domain],
+    ['Src IP',        ev.src_ip],
+    ['Src Port',      ev.src_port],
+    ['Dst IP / Domain', ev.dst_ip],
+    ['Dst Port',      ev.dst_port],
+    ['Protocol',      ev.proto],
+    ['File Path',     ev.file_path],
+    ['File Hash',     ev.file_hash],
+    ['Registry Key',  ev.reg_key],
+    ['Registry Value',ev.reg_value],
+  ].filter(([, v]) => v !== null && v !== undefined && v !== '') : []
 
   return (
-    <tr className="border-b border-siem-border/20 hover:bg-white/[0.03] transition-colors group">
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      <div className="w-full max-w-2xl bg-siem-surface border-l border-siem-border h-full overflow-y-auto shadow-2xl flex flex-col"
+           onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-siem-border sticky top-0 bg-siem-surface z-10">
+          <div className="flex items-center gap-2">
+            <SearchIcon size={15} className="text-siem-accent" />
+            <span className="text-sm font-semibold text-siem-text">Event Detail</span>
+            {ev && <span className={`text-xs px-2 py-0.5 rounded-full border ${
+              ev.severity >= 5 ? 'border-red-700 text-red-400 bg-red-900/20' :
+              ev.severity >= 4 ? 'border-orange-700 text-orange-400 bg-orange-900/20' :
+              'border-siem-border text-siem-muted'
+            }`}>{SEV_LABEL[ev?.severity]}</span>}
+          </div>
+          <button onClick={onClose} className="text-siem-muted hover:text-siem-text p-1"><X size={18} /></button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center flex-1 text-siem-muted text-sm gap-2">
+            <div className="w-4 h-4 border-2 border-siem-accent/30 border-t-siem-accent rounded-full animate-spin" />
+            Loading...
+          </div>
+        ) : !ev ? (
+          <div className="p-6 text-siem-muted text-sm">Event details not available</div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            {/* All fields */}
+            <div className="p-5 space-y-4">
+              <div className="text-xs uppercase tracking-wider text-siem-muted font-medium">Event Fields</div>
+              <div className="bg-siem-bg border border-siem-border rounded-xl overflow-hidden">
+                {allFields.map(([label, value], i) => (
+                  <div key={label} className={`flex gap-3 px-4 py-2.5 text-sm ${i % 2 === 0 ? '' : 'bg-white/[0.02]'}`}>
+                    <span className="text-siem-muted w-36 shrink-0 text-xs">{label}</span>
+                    <span className="text-siem-text font-mono text-xs break-all">{String(value)}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Raw JSON */}
+              {ev.raw && (
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-siem-muted font-medium mb-2">Raw Payload</div>
+                  <pre className="bg-siem-bg border border-siem-border rounded-xl p-4 text-xs text-siem-accent font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                    {JSON.stringify(typeof ev.raw === 'string' ? JSON.parse(ev.raw) : ev.raw, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {/* Related events */}
+              {related.length > 0 && (
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-siem-muted font-medium mb-2">
+                    Related Events on {ev.host} <span className="normal-case text-siem-muted font-normal">(±5 min)</span>
+                  </div>
+                  <div className="bg-siem-bg border border-siem-border rounded-xl overflow-hidden">
+                    {related.slice(0, 20).map((r, i) => (
+                      <div key={r.id || i} className="flex items-center gap-3 px-4 py-2.5 border-b border-siem-border/30 last:border-0 text-xs">
+                        <span className="text-siem-muted font-mono w-32 shrink-0">{format(new Date(r.time), 'HH:mm:ss')}</span>
+                        <span className={`w-16 shrink-0 ${TYPE_COLOR[r.event_type] || 'text-siem-muted'}`}>{r.event_type}</span>
+                        <span className={`w-6 font-bold shrink-0 ${SEV_COLOR[r.severity]}`}>{r.severity}</span>
+                        <span className="text-siem-muted truncate">{r.process_name || r.dst_ip || r.reg_key || r.file_path || r.user_name || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Result Row ────────────────────────────────────────────────────────────────
+function ResultRow({ ev, onClick }) {
+  // For DNS events: domain is in dst_ip (new) or need to parse raw (old)
+  let domain = ev.dst_ip || ''
+  if (!domain && ev.raw) {
+    try {
+      const r = typeof ev.raw === 'string' ? JSON.parse(ev.raw) : ev.raw
+      domain = r.query_name || r.dst_ip || ''
+    } catch {}
+  }
+
+  const subject = ev.process_name || ev.reg_key || ev.file_path || domain || ev.src_ip || '—'
+  const detail  = ev.command_line || domain || ev.reg_value || ev.dst_ip || ev.file_path || '—'
+
+  return (
+    <tr className="border-b border-siem-border/20 hover:bg-white/[0.03] transition-colors cursor-pointer group"
+        onClick={() => onClick(ev)}>
       <td className="px-4 py-2.5 text-siem-muted text-xs whitespace-nowrap font-mono">
         {format(new Date(ev.time), 'MM/dd HH:mm:ss')}
       </td>
@@ -172,104 +310,102 @@ function ResultRow({ ev }) {
         <span className={`text-xs font-medium ${TYPE_COLOR[ev.event_type] || 'text-siem-muted'}`}>{ev.event_type}</span>
       </td>
       <td className="px-3 py-2.5 text-siem-muted text-xs">{ev.user_name || '—'}</td>
-      <td className="px-3 py-2.5 text-siem-muted text-xs max-w-[180px] truncate" title={subject}>{subject}</td>
-      <td className="px-3 py-2.5 text-siem-muted text-xs max-w-[280px] truncate font-mono text-[11px]" title={detail}>{detail}</td>
+      <td className="px-3 py-2.5 text-siem-muted text-xs max-w-[160px] truncate" title={subject}>{subject}</td>
+      <td className="px-3 py-2.5 text-siem-muted text-xs max-w-[260px] truncate font-mono text-[11px]" title={detail}>{detail}</td>
+      <td className="px-3 py-2.5 text-siem-muted group-hover:text-siem-accent transition-colors">
+        <ChevronRight size={13} />
+      </td>
     </tr>
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function Search() {
-  const [activeCat, setActiveCat] = useState('Process')
-  const [quickText, setQuickText]   = useState('')
-  const [chips, setChips]           = useState({})   // active filter chips
-  const [results, setResults]       = useState([])
-  const [total, setTotal]           = useState(0)
-  const [loading, setLoading]       = useState(false)
-  const [ran, setRan]               = useState(false)
+  const [activeCat, setActiveCat]     = useState('Process')
+  const [quickText, setQuickText]     = useState('')
+  const [chips, setChips]             = useState({})
+  const [results, setResults]         = useState([])
+  const [total, setTotal]             = useState(0)
+  const [loading, setLoading]         = useState(false)
+  const [ran, setRan]                 = useState(false)
   const [activeLabel, setActiveLabel] = useState('')
+  const [selectedEvent, setSelectedEvent] = useState(null)
   const inputRef = useRef(null)
 
-  // Build final params from chips (no default time range — search all data)
-  const buildParams = useCallback((extra = {}) => {
-    const p = { ...chips, ...extra, limit: 200 }
-    // Strip empty values
-    return Object.fromEntries(Object.entries(p).filter(([, v]) => v !== '' && v !== undefined))
-  }, [chips])
-
-  const runQuery = useCallback(async (overrideParams) => {
-    const p = overrideParams || buildParams()
-    if (Object.keys(p).length <= 1 && p.limit) { return } // nothing useful
+  const runQuery = useCallback(async (p) => {
+    const cleaned = Object.fromEntries(Object.entries({ ...p, limit: 200 }).filter(([, v]) => v !== '' && v !== undefined))
     setLoading(true)
     setRan(true)
     try {
-      const { data } = await api.get('/api/v1/events', { params: p })
-      setResults(data.events || [])
-      setTotal(data.total || 0)
-    } catch (e) {
-      setResults([])
-    } finally { setLoading(false) }
-  }, [buildParams])
+      const { data } = await api.get('/api/v1/events', { params: cleaned })
+      let events = data.events || []
+      // If dns query returns nothing, auto-fallback to searching source=DNS-Client
+      if (events.length === 0 && cleaned.event_type === 'dns') {
+        const fallback = { ...cleaned }
+        delete fallback.event_type
+        fallback.search = fallback.search ? fallback.search + ' DNS-Client' : 'DNS-Client'
+        const r2 = await api.get('/api/v1/events', { params: fallback })
+        events = r2.data?.events || []
+        if (events.length > 0) setTotal(r2.data?.total || 0)
+      } else {
+        setTotal(data.total || 0)
+      }
+      setResults(events)
+    } catch { setResults([]) }
+    finally { setLoading(false) }
+  }, [])
 
-  // Click saved query → load chips and immediately run
   const loadSaved = (q) => {
     setChips(q.params)
     setActiveLabel(q.label)
     setQuickText('')
-    runQuery({ ...q.params, limit: 200 })
+    setSelectedEvent(null)
+    runQuery(q.params)
   }
 
-  // Quick search bar — parse and run
   const handleQuickSearch = (e) => {
     e.preventDefault()
     if (!quickText.trim()) return
     const parsed = parseQuickSearch(quickText)
     setChips(parsed)
     setActiveLabel(quickText)
-    runQuery({ ...parsed, limit: 200 })
+    setSelectedEvent(null)
+    runQuery(parsed)
   }
 
   const removeChip = (key) => {
     const next = { ...chips }
     delete next[key]
     setChips(next)
-    runQuery({ ...next, limit: 200 })
+    runQuery(next)
   }
 
-  const clearAll = () => { setChips({}); setResults([]); setRan(false); setActiveLabel(''); setQuickText('') }
-
-  const CHIP_LABEL = {
-    event_type:'Type', process_name:'Process', command_line:'Cmd',
-    user_name:'User', src_ip:'Src IP', dst_ip:'Dst IP', dst_port:'Port',
-    proto:'Proto', file_path:'File', reg_key:'Reg', channel:'Channel',
-    event_id:'Event ID', severity:'Sev ≥', search:'Search', host:'Host',
-    image_path:'Image', agent_id:'Agent',
+  const clearAll = () => {
+    setChips({}); setResults([]); setRan(false)
+    setActiveLabel(''); setQuickText(''); setSelectedEvent(null)
   }
 
   return (
     <div className="flex h-[calc(100vh-0px)] overflow-hidden bg-siem-bg">
+      {selectedEvent && (
+        <EventPanel eventId={selectedEvent.id} onClose={() => setSelectedEvent(null)} />
+      )}
 
-      {/* ── Left sidebar ──────────────────────────────────────────────── */}
-      <div className="w-64 bg-siem-surface border-r border-siem-border flex flex-col shrink-0">
+      {/* Sidebar */}
+      <div className="w-60 bg-siem-surface border-r border-siem-border flex flex-col shrink-0">
         <div className="px-4 py-3 border-b border-siem-border flex items-center gap-2">
-          <BookOpen size={14} className="text-siem-accent" />
+          <BookOpen size={13} className="text-siem-accent" />
           <span className="text-xs font-semibold text-siem-text">Saved Queries</span>
           <span className="ml-auto text-[10px] text-siem-muted bg-siem-border/50 rounded px-1.5 py-0.5">{SAVED_QUERIES.length}</span>
         </div>
-
-        {/* Category tabs */}
         <div className="flex flex-wrap gap-1 px-2 py-2 border-b border-siem-border">
           {CATEGORIES.map(c => (
             <button key={c} onClick={() => setActiveCat(c)}
               className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
                 activeCat === c ? 'bg-siem-accent text-white' : 'text-siem-muted hover:text-siem-text hover:bg-white/[0.04]'
-              }`}>
-              {c}
-            </button>
+              }`}>{c}</button>
           ))}
         </div>
-
-        {/* Query list */}
         <div className="flex-1 overflow-y-auto">
           {SAVED_QUERIES.filter(q => q.cat === activeCat).map((q, i) => (
             <button key={i} onClick={() => loadSaved(q)}
@@ -277,55 +413,44 @@ export default function Search() {
                 activeLabel === q.label
                   ? 'bg-siem-accent/15 text-siem-accent border-l-2 border-l-siem-accent pl-3'
                   : 'text-siem-muted hover:bg-white/[0.04] hover:text-siem-text'
-              }`}>
-              {q.label}
-            </button>
+              }`}>{q.label}</button>
           ))}
         </div>
       </div>
 
-      {/* ── Right panel ───────────────────────────────────────────────── */}
+      {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Search bar */}
-        <div className="bg-siem-surface border-b border-siem-border px-5 py-4 space-y-3">
-
-          {/* Quick search */}
+        <div className="bg-siem-surface border-b border-siem-border px-5 py-3 space-y-2">
           <form onSubmit={handleQuickSearch} className="flex gap-2">
             <div className="relative flex-1">
               <SearchIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-siem-muted pointer-events-none" />
               <input ref={inputRef}
-                className="w-full bg-siem-bg border border-siem-border rounded-lg pl-9 pr-4 py-2.5 text-sm text-siem-text placeholder-siem-muted focus:outline-none focus:border-siem-accent transition-colors"
-                placeholder='host:CORP-VAPT type:process   or   type:dns   or   user:admin   or just free text'
-                value={quickText}
-                onChange={e => setQuickText(e.target.value)}
+                className="w-full bg-siem-bg border border-siem-border rounded-lg pl-9 pr-4 py-2 text-sm text-siem-text placeholder-siem-muted focus:outline-none focus:border-siem-accent"
+                placeholder="host:CORP-VAPT type:process  |  type:dns  |  user:admin  |  port:3389  |  free text"
+                value={quickText} onChange={e => setQuickText(e.target.value)}
               />
             </div>
-            <button type="submit"
-              className="flex items-center gap-2 bg-siem-accent hover:bg-siem-accent/90 text-white text-sm px-5 py-2.5 rounded-lg transition-colors shrink-0">
-              <Play size={13} fill="currentColor" /> Search
+            <button type="submit" className="flex items-center gap-1.5 bg-siem-accent hover:bg-siem-accent/90 text-white text-sm px-4 py-2 rounded-lg shrink-0">
+              <Play size={12} fill="currentColor" /> Search
             </button>
-            {(Object.keys(chips).length > 0 || ran) && (
-              <button type="button" onClick={clearAll}
-                className="text-xs text-siem-muted hover:text-siem-text border border-siem-border rounded-lg px-3 py-2">
-                Clear
-              </button>
-            )}
+            {ran && <button type="button" onClick={clearAll} className="text-xs text-siem-muted hover:text-siem-text border border-siem-border rounded-lg px-3 py-2">Clear</button>}
           </form>
 
-          {/* Syntax hint */}
-          <div className="flex flex-wrap gap-2 text-[10px] text-siem-muted">
+          {/* Hint chips */}
+          <div className="flex flex-wrap gap-1.5">
             {[
-              ['host:CORP-VAPT type:process', 'All processes on a host'],
-              ['type:dns', 'All websites visited'],
-              ['type:logon user:admin', 'Admin logon history'],
+              ['host:CORP-VAPT type:process', 'All processes on host'],
+              ['type:dns', 'Websites visited'],
+              ['type:logon', 'Logon history'],
               ['port:3389', 'RDP connections'],
-              ['cmd:powershell -enc', 'Encoded PowerShell'],
-              ['type:network dst:8.8.8.8', 'Connections to specific IP'],
+              ['cmd:powershell', 'PowerShell activity'],
+              ['sev:4', 'High severity events'],
             ].map(([ex, tip]) => (
-              <button key={ex} onClick={() => { setQuickText(ex); inputRef.current?.focus() }}
-                className="bg-siem-bg border border-siem-border/50 rounded px-2 py-1 hover:border-siem-accent/40 hover:text-siem-accent transition-colors"
-                title={tip}>
+              <button key={ex} onClick={() => { setQuickText(ex); setTimeout(() => inputRef.current?.focus(), 0) }}
+                title={tip}
+                className="text-[10px] bg-siem-bg border border-siem-border/50 rounded px-2 py-0.5 text-siem-muted hover:border-siem-accent/50 hover:text-siem-accent transition-colors">
                 {ex}
               </button>
             ))}
@@ -333,20 +458,14 @@ export default function Search() {
 
           {/* Active chips */}
           {Object.keys(chips).length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
               {Object.entries(chips).map(([k, v]) => (
                 <span key={k} className="flex items-center gap-1 bg-siem-accent/10 border border-siem-accent/30 rounded-full px-2.5 py-0.5 text-xs">
                   <span className="text-siem-accent font-medium">{CHIP_LABEL[k] || k}:</span>
                   <span className="text-siem-text">{v}</span>
-                  <button onClick={() => removeChip(k)} className="text-siem-muted hover:text-red-400 ml-0.5">
-                    <X size={9} />
-                  </button>
+                  <button onClick={() => removeChip(k)} className="text-siem-muted hover:text-red-400 ml-0.5"><X size={9} /></button>
                 </span>
               ))}
-              <button onClick={() => runQuery()}
-                className="flex items-center gap-1 text-xs text-siem-accent border border-siem-accent/40 rounded-full px-2.5 py-0.5 hover:bg-siem-accent/10 transition-colors">
-                <Play size={9} fill="currentColor" /> Re-run
-              </button>
             </div>
           )}
         </div>
@@ -354,20 +473,20 @@ export default function Search() {
         {/* Results */}
         <div className="flex-1 overflow-y-auto">
           {!ran ? (
-            <div className="flex flex-col items-center justify-center h-full text-siem-muted select-none">
-              <SearchIcon size={48} className="opacity-10 mb-5" />
-              <div className="text-base font-medium text-siem-text/50 mb-2">Search your endpoint telemetry</div>
-              <div className="text-sm mb-6">Click a saved query on the left, or type in the search bar above</div>
-              <div className="grid grid-cols-2 gap-2 text-xs max-w-lg w-full px-4">
+            <div className="flex flex-col items-center justify-center h-full text-siem-muted select-none px-6">
+              <SearchIcon size={44} className="opacity-10 mb-4" />
+              <div className="text-sm font-medium text-siem-text/50 mb-1">Search endpoint telemetry</div>
+              <div className="text-xs mb-6 text-center">Click any saved query on the left, or type in the search bar above.<br/>Click any result row to see full event details.</div>
+              <div className="grid grid-cols-2 gap-2 text-xs max-w-lg w-full">
                 {[
-                  { label: '🖥  All processes on a host',   action: () => { setQuickText('host:CORP-VAPT type:process'); runQuery({ host:'CORP-VAPT', event_type:'process', limit:200 }); setActiveLabel('All processes on CORP-VAPT') } },
-                  { label: '🌐 Websites visited (DNS)',      action: () => loadSaved({ label:'All DNS queries (websites visited)', params:{ event_type:'dns' } }) },
-                  { label: '🔐 Failed logon attempts',       action: () => loadSaved({ label:'Failed logons (Event 4625)', params:{ event_type:'logon', event_id:'4625' } }) },
-                  { label: '⚡ Critical severity events',   action: () => loadSaved({ label:'All critical severity events', params:{ severity:'5' } }) },
-                  { label: '🔌 RDP connections',             action: () => loadSaved({ label:'Outbound RDP (port 3389)', params:{ event_type:'network', dst_port:'3389' } }) },
-                  { label: '📋 Registry persistence keys',  action: () => loadSaved({ label:'Run key modifications', params:{ event_type:'registry', reg_key:'CurrentVersion\\Run' } }) },
-                ].map(({ label, action }) => (
-                  <button key={label} onClick={action}
+                  { label: '🖥  All processes on this host',  q: { event_type:'process', host:'CORP-VAPT' },        l: 'Processes on CORP-VAPT' },
+                  { label: '🌐 Websites visited (DNS)',        q: { event_type:'dns' },                              l: 'Websites visited' },
+                  { label: '🔐 Failed logon attempts',         q: { event_type:'logon', event_id:'4625' },          l: 'Failed logons' },
+                  { label: '⚡ Critical events',               q: { severity:'5' },                                  l: 'Critical severity' },
+                  { label: '🔌 RDP connections',               q: { event_type:'network', dst_port:'3389' },        l: 'RDP connections' },
+                  { label: '📋 Run key persistence',           q: { event_type:'registry', reg_key:'CurrentVersion\\Run' }, l: 'Run key changes' },
+                ].map(({ label, q, l }) => (
+                  <button key={label} onClick={() => { setChips(q); setActiveLabel(l); runQuery(q) }}
                     className="text-left bg-siem-surface border border-siem-border rounded-lg px-3 py-2.5 hover:border-siem-accent/40 hover:bg-white/[0.03] transition-colors text-siem-muted hover:text-siem-text">
                     {label}
                   </button>
@@ -381,22 +500,20 @@ export default function Search() {
             </div>
           ) : (
             <>
-              {/* Result count bar */}
-              <div className="flex items-center gap-3 px-5 py-2 border-b border-siem-border/40 bg-siem-surface/60 sticky top-0 z-10">
-                <span className="text-xs text-siem-muted">
-                  {results.length === 0
-                    ? '⚠ No results — try a wider time range or different filter'
-                    : <><span className="text-siem-text font-medium">{results.length.toLocaleString()}</span> of <span className="text-siem-text font-medium">{total.toLocaleString()}</span> events</>
-                  }
-                </span>
-                {activeLabel && <span className="text-xs text-siem-accent/80 truncate max-w-xs">"{activeLabel}"</span>}
-                {results.length === 0 && Object.values(chips).some(v => v) && (
-                  <button onClick={() => {
-                    const wider = { ...chips }
-                    delete wider.since; delete wider.until
-                    setChips(wider)
-                    runQuery({ ...wider, limit: 200 })
-                  }} className="ml-auto text-xs text-siem-accent border border-siem-accent/30 rounded px-2 py-0.5 hover:bg-siem-accent/10">
+              <div className="flex items-center gap-3 px-5 py-2 border-b border-siem-border/40 bg-siem-surface/60 sticky top-0 z-10 text-xs">
+                {results.length === 0 ? (
+                  <span className="text-yellow-400">No results found — try removing filters or clicking "Search all time"</span>
+                ) : (
+                  <span className="text-siem-muted">
+                    <span className="text-siem-text font-medium">{results.length.toLocaleString()}</span>
+                    {total > results.length && <> of <span className="text-siem-text font-medium">{total.toLocaleString()}</span></>}
+                    {' '}events · click any row for details
+                  </span>
+                )}
+                {activeLabel && <span className="text-siem-accent/70 truncate max-w-xs ml-1">"{activeLabel}"</span>}
+                {results.length === 0 && (
+                  <button onClick={() => { const p = { ...chips }; delete p.since; delete p.until; setChips(p); runQuery(p) }}
+                    className="ml-auto text-siem-accent border border-siem-accent/30 rounded px-2 py-0.5 hover:bg-siem-accent/10">
                     Search all time →
                   </button>
                 )}
@@ -411,12 +528,15 @@ export default function Search() {
                       <th className="text-left px-3 py-2.5 font-medium">Host</th>
                       <th className="text-left px-3 py-2.5 font-medium">Type</th>
                       <th className="text-left px-3 py-2.5 font-medium">User</th>
-                      <th className="text-left px-3 py-2.5 font-medium">Process / Key / IP</th>
-                      <th className="text-left px-3 py-2.5 font-medium">Command Line / Domain / Value</th>
+                      <th className="text-left px-3 py-2.5 font-medium">Process / Domain / Key</th>
+                      <th className="text-left px-3 py-2.5 font-medium">Command / URL / Value</th>
+                      <th className="px-3 py-2.5"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {results.map((ev, i) => <ResultRow key={ev.id || i} ev={ev} />)}
+                    {results.map((ev, i) => (
+                      <ResultRow key={ev.id || i} ev={ev} onClick={setSelectedEvent} />
+                    ))}
                   </tbody>
                 </table>
               )}
