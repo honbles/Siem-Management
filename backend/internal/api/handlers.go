@@ -186,15 +186,29 @@ func intPtr(i *int) string {
 func parseEventFilter(r *http.Request) store.EventFilter {
 	q := r.URL.Query()
 	f := store.EventFilter{
-		AgentID: q.Get("agent_id"), Host: q.Get("host"),
-		EventType: q.Get("event_type"), SrcIP: q.Get("src_ip"),
-		DstIP: q.Get("dst_ip"), UserName: q.Get("user_name"), Search: q.Get("search"),
+		AgentID:     q.Get("agent_id"),
+		Host:        q.Get("host"),
+		EventType:   q.Get("event_type"),
+		SrcIP:       q.Get("src_ip"),
+		DstIP:       q.Get("dst_ip"),
+		Proto:       q.Get("proto"),
+		UserName:    q.Get("user_name"),
+		ProcessName: q.Get("process_name"),
+		CommandLine: q.Get("command_line"),
+		ImagePath:   q.Get("image_path"),
+		FilePath:    q.Get("file_path"),
+		RegKey:      q.Get("reg_key"),
+		Channel:     q.Get("channel"),
+		Search:      q.Get("search"),
 	}
-	if s := q.Get("severity"); s != "" { f.Severity, _ = strconv.Atoi(s) }
-	if s := q.Get("since");    s != "" { f.Since, _    = time.Parse(time.RFC3339, s) }
-	if s := q.Get("until");    s != "" { f.Until, _    = time.Parse(time.RFC3339, s) }
-	if s := q.Get("limit");    s != "" { f.Limit, _    = strconv.Atoi(s) }
-	if s := q.Get("offset");   s != "" { f.Offset, _   = strconv.Atoi(s) }
+	if s := q.Get("severity");  s != "" { f.Severity, _  = strconv.Atoi(s) }
+	if s := q.Get("dst_port");  s != "" { f.DstPort, _   = strconv.Atoi(s) }
+	if s := q.Get("src_port");  s != "" { f.SrcPort, _   = strconv.Atoi(s) }
+	if s := q.Get("event_id");  s != "" { v, _ := strconv.ParseUint(s, 10, 32); f.EventID = uint32(v) }
+	if s := q.Get("since");     s != "" { f.Since, _     = time.Parse(time.RFC3339, s) }
+	if s := q.Get("until");     s != "" { f.Until, _     = time.Parse(time.RFC3339, s) }
+	if s := q.Get("limit");     s != "" { f.Limit, _     = strconv.Atoi(s) }
+	if s := q.Get("offset");    s != "" { f.Offset, _    = strconv.Atoi(s) }
 	if f.Since.IsZero() && f.Until.IsZero() { f.Since = time.Now().Add(-24 * time.Hour) }
 	return f
 }
@@ -523,5 +537,25 @@ func handleTestSMTP(mailer *notify.Mailer) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, 200, map[string]string{"status": "test email sent"})
+	}
+}
+
+// ── Detection Signatures ───────────────────────────────────────────────────────
+
+func handleListDetections() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type SigInfo struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Severity    int    `json:"severity"`
+			MITRE       string `json:"mitre"`
+			Category    string `json:"category"`
+		}
+		out := make([]SigInfo, len(threatSignatures))
+		for i, s := range threatSignatures {
+			out[i] = SigInfo{s.ID, s.Name, s.Description, s.Severity, s.MITRE, s.Category}
+		}
+		writeJSON(w, 200, map[string]interface{}{"signatures": out, "count": len(out)})
 	}
 }

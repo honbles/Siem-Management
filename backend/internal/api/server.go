@@ -75,6 +75,9 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	protected.HandleFunc("GET /api/v1/stats",               handleStats(db))
 	protected.HandleFunc("GET /api/v1/threat-intel",        handleThreatIntel(db))
 
+	// Detections
+	protected.HandleFunc("GET /api/v1/detections", handleListDetections())
+
 	// Settings
 	protected.HandleFunc("GET /api/v1/settings/smtp",       handleGetSMTPSettings(cfg))
 	protected.HandleFunc("POST /api/v1/settings/smtp/test", handleTestSMTP(mailer))
@@ -101,6 +104,8 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 func (s *Server) Start(ctx context.Context) error {
 	engine := NewAlertEngine(s.db, s.mailer, s.logger)
 	go engine.Run(ctx)
+	detection := NewDetectionEngine(s.db, s.mailer, s.logger)
+	go detection.Run(ctx)
 	go s.hub.Run(ctx)
 	s.logger.Info("management server starting", "addr", s.cfg.Server.ListenAddr)
 	return s.http.ListenAndServe()

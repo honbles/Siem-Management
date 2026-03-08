@@ -1,9 +1,11 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Shield, LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Key, Settings } from 'lucide-react'
+import { Shield, LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Key, Settings, Search, Zap } from 'lucide-react'
 
 const links = [
   { to: '/',             label: 'Dashboard',    icon: LayoutDashboard },
   { to: '/events',       label: 'Events',       icon: Activity },
+  { to: '/search',        label: 'Search',       icon: Search },
+  { to: '/detections',    label: 'Detections',   icon: Zap },
   { to: '/agents',       label: 'Agents',       icon: Monitor },
   { to: '/alerts',       label: 'Alerts',       icon: Bell },
   { to: '/alert-rules',  label: 'Alert Rules',  icon: BookOpen },
