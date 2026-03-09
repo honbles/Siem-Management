@@ -6,10 +6,10 @@ server:
     - "*"
 
 database:
-  host:     "localhost"
+  host:     "timescaledb"
   port:     5432
-  name:     "obsidianwatch"
-  user:     "obsidianwatch"
+  name:     "opensiem"
+  user:     "opensiem"
   password: "changeme"
   ssl_mode: "disable"
   max_open_conns:    25

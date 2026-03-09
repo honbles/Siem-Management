@@ -1,5 +1,8 @@
 -- 006_tamper_cases.sql
 
+-- Enable pgcrypto for gen_random_bytes (safe to run multiple times)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Tamper protection: install key per agent
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS install_key   TEXT;
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS tamper_locked BOOLEAN NOT NULL DEFAULT FALSE;
