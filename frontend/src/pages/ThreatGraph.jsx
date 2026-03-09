@@ -388,12 +388,16 @@ function HostCard({ agent, onClick, selected }) {
 function buildProcessTree(events) {
   const procMap = {}
 
-  events.filter(e => e.event_type === 'process').forEach(e => {
-    const key = `${e.process_name}:${e.pid}`
+  // Use process_name as the grouping key (names are more stable than PIDs)
+  events.filter(e => e.event_type === 'process' && e.process_name).forEach(e => {
+    const name = e.process_name || '?'
+    const pid  = e.pid || 0
+    const key  = `${name}:${pid}`
+
     if (!procMap[key]) {
       procMap[key] = {
-        name:        e.process_name || '?',
-        pid:         e.pid || 0,
+        name,
+        pid,
         ppid:        e.ppid || 0,
         commandLine: e.command_line || '',
         user:        e.user_name || '',
@@ -401,7 +405,6 @@ function buildProcessTree(events) {
         events:      0,
         children:    [],
         _key:        key,
-        _ppidKey:    `${e.image_path?.split('\\').pop() || ''}:${e.ppid}`,
       }
     }
     const proc = procMap[key]
@@ -411,10 +414,29 @@ function buildProcessTree(events) {
     if (!proc.user && e.user_name) proc.user = e.user_name
   })
 
+  // If no structured process events, synthesize from all events with process_name
+  if (Object.keys(procMap).length === 0) {
+    events.filter(e => e.process_name).forEach(e => {
+      const name = e.process_name
+      const key  = name
+      if (!procMap[key]) {
+        procMap[key] = {
+          name, pid: 0, ppid: 0,
+          commandLine: e.command_line || '',
+          user: e.user_name || '',
+          maxSeverity: e.severity || 1,
+          events: 0, children: [], _key: key,
+        }
+      }
+      procMap[key].events++
+      if ((e.severity||1) > procMap[key].maxSeverity) procMap[key].maxSeverity = e.severity
+    })
+  }
+
   // Build tree by PPID
   const roots = []
   const byPid = {}
-  Object.values(procMap).forEach(p => { byPid[p.pid] = p })
+  Object.values(procMap).forEach(p => { if (p.pid) byPid[p.pid] = p })
   Object.values(procMap).forEach(p => {
     const parent = byPid[p.ppid]
     if (parent && parent._key !== p._key) {
@@ -424,7 +446,6 @@ function buildProcessTree(events) {
     }
   })
 
-  // Sort: highest severity first
   const sortProcs = arr => {
     arr.sort((a, b) => b.maxSeverity - a.maxSeverity || a.name.localeCompare(b.name))
     arr.forEach(p => sortProcs(p.children))
@@ -437,9 +458,13 @@ function buildProcessTree(events) {
 // ── Group processes by type ───────────────────────────────────────────────────
 function groupByType(roots) {
   const groups = { windows: [], corporate: [], other: [] }
+  const seen = new Set()
   const flatten = (nodes) => {
     nodes.forEach(n => {
-      groups[classifyProcess(n.name)].push(n)
+      if (!seen.has(n._key)) {
+        seen.add(n._key)
+        groups[classifyProcess(n.name)].push(n)
+      }
       flatten(n.children)
     })
   }
