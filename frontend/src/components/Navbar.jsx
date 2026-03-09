@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Settings, Search, Zap } from 'lucide-react'
+import { LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Key, Settings, Search, Zap } from 'lucide-react'
 
 const links = [
   { to: '/',             label: 'Dashboard',    icon: LayoutDashboard },
