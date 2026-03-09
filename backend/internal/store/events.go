@@ -139,8 +139,10 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 		where = append(where, fmt.Sprintf("time <= $%d", n)); args = append(args, f.Until.UTC()); n++
 	}
 
-	if f.Limit <= 0 || f.Limit > 1000 {
+	if f.Limit <= 0 {
 		f.Limit = 100
+	} else if f.Limit > 5000 {
+		f.Limit = 5000
 	}
 
 	whereStr := strings.Join(where, " AND ")

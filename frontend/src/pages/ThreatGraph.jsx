@@ -335,8 +335,8 @@ function AppGroupCard({ group, type, onClick, selected }) {
 
 // ── Host Card ─────────────────────────────────────────────────────────────────
 function HostCard({ agent, onClick, selected }) {
-  const isSelected = selected?.agent_id === agent.agent_id
-  const isOnline = agent.status === 'online'
+  const isSelected = selected?.id === agent.id
+  const isOnline = agent.online
 
   return (
     <div
@@ -355,8 +355,8 @@ function HostCard({ agent, onClick, selected }) {
           <Monitor size={18} className={isSelected ? 'text-siem-accent' : 'text-siem-muted'} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-siem-text truncate">{agent.host}</div>
-          <div className="text-[10px] text-siem-muted mt-0.5">{agent.os || 'Windows'}</div>
+          <div className="text-sm font-bold text-siem-text truncate">{agent.hostname}</div>
+          <div className="text-[10px] text-siem-muted mt-0.5">{agent.os || 'windows'}</div>
         </div>
         {/* Status dot */}
         <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
@@ -367,8 +367,8 @@ function HostCard({ agent, onClick, selected }) {
       {/* Stats */}
       <div className="grid grid-cols-2 gap-2">
         {[
-          { label: 'Events (24h)', value: agent.event_count_24h || '—', icon: Activity },
-          { label: 'IP Address',   value: agent.ip || '—',              icon: Globe },
+          { label: 'Events (24h)', value: agent.event_count || '—', icon: Activity },
+          { label: 'IP Address',   value: agent.last_ip || '—',              icon: Globe },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="bg-siem-bg/60 rounded-lg p-2">
             <div className="text-[9px] uppercase tracking-wider text-siem-muted/70 mb-0.5">{label}</div>
@@ -378,7 +378,7 @@ function HostCard({ agent, onClick, selected }) {
       </div>
 
       <div className="mt-3 text-[10px] text-siem-muted truncate font-mono">
-        {agent.agent_id?.slice(0, 16)}…
+        {agent.id?.slice(0, 16)}…
       </div>
     </div>
   )
@@ -473,7 +473,7 @@ export default function ThreatGraph() {
     setHostData(null)
     setLoadingHost(true)
     try {
-      const r = await api.get(`/api/v1/threat-graph/${encodeURIComponent(agent.host)}`, {
+      const r = await api.get(`/api/v1/threat-graph/${encodeURIComponent(agent.hostname)}`, {
         params: { since_hours: timeRange }
       })
       setHostData(r.data)
@@ -532,7 +532,7 @@ export default function ThreatGraph() {
             <div className="text-center text-siem-muted text-xs py-8">No agents found</div>
           ) : (
             agents.map(agent => (
-              <HostCard key={agent.agent_id} agent={agent}
+              <HostCard key={agent.id} agent={agent}
                 onClick={loadHost} selected={selectedHost} />
             ))
           )}
@@ -559,7 +559,7 @@ export default function ThreatGraph() {
             <div className="px-5 py-3 border-b border-siem-border bg-siem-surface flex items-center gap-3 shrink-0">
               <Monitor size={16} className="text-siem-accent" />
               <div>
-                <span className="text-sm font-bold text-siem-text">{selectedHost.host}</span>
+                <span className="text-sm font-bold text-siem-text">{selectedHost.hostname}</span>
                 <span className="text-siem-muted text-xs ml-2">
                   {totalProcesses} process events · {allEvents.length} total events
                 </span>

@@ -574,7 +574,7 @@ func handleThreatGraphHost(db *store.DB) http.HandlerFunc {
 			}
 		}
 
-		// Fetch all process events for this host
+		// Fetch all process events for this host (ILIKE partial match works for hostname)
 		f := store.EventFilter{
 			Host:      host,
 			EventType: "process",
@@ -587,8 +587,8 @@ func handleThreatGraphHost(db *store.DB) http.HandlerFunc {
 			return
 		}
 
-		// Also fetch file, network, registry events for enrichment
-		fAll := store.EventFilter{Host: host, Since: since, Limit: 3000}
+		// Also fetch ALL event types for enrichment (file, network, registry, dns)
+		fAll := store.EventFilter{Host: host, Since: since, Limit: 5000}
 		allEvents, _, _ := db.QueryEvents(r.Context(), fAll)
 
 		writeJSON(w, 200, map[string]interface{}{
