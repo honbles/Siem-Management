@@ -14,6 +14,7 @@ import ChangePassword from './pages/ChangePassword'
 import Settings from './pages/Settings'
 import Search from './pages/Search'
 import Detections from './pages/Detections'
+import ThreatGraph from './pages/ThreatGraph'
 
 function Layout({ user, children }) {
   return (
@@ -70,7 +71,8 @@ export default function App() {
         <Route path="/audit-log"    element={<ProtectedRoute><AuditLog /></ProtectedRoute>} />
         <Route path="/settings"      element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/search"        element={<ProtectedRoute><Search /></ProtectedRoute>} />
-        <Route path="/detections"    element={<ProtectedRoute><Detections /></ProtectedRoute>} />
+        <Route path="/threat-graph" element={<ThreatGraph />} />
+          <Route path="/detections"    element={<ProtectedRoute><Detections /></ProtectedRoute>} />
         <Route path="*"             element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

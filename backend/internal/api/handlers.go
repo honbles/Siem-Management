@@ -559,3 +559,71 @@ func handleListDetections() http.HandlerFunc {
 		writeJSON(w, 200, map[string]interface{}{"signatures": out, "count": len(out)})
 	}
 }
+
+// ── Threat Graph ──────────────────────────────────────────────────────────────
+
+// handleThreatGraphHost returns all process events for a host, grouped by
+// application, with parent/child relationships for tree rendering.
+func handleThreatGraphHost(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		host := r.PathValue("host")
+		since := time.Now().Add(-24 * time.Hour)
+		if s := r.URL.Query().Get("since_hours"); s != "" {
+			if h, err := strconv.Atoi(s); err == nil {
+				since = time.Now().Add(-time.Duration(h) * time.Hour)
+			}
+		}
+
+		// Fetch all process events for this host
+		f := store.EventFilter{
+			Host:      host,
+			EventType: "process",
+			Since:     since,
+			Limit:     2000,
+		}
+		events, _, err := db.QueryEvents(r.Context(), f)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "query failed"})
+			return
+		}
+
+		// Also fetch file, network, registry events for enrichment
+		fAll := store.EventFilter{Host: host, Since: since, Limit: 3000}
+		allEvents, _, _ := db.QueryEvents(r.Context(), fAll)
+
+		writeJSON(w, 200, map[string]interface{}{
+			"host":       host,
+			"processes":  events,
+			"all_events": allEvents,
+			"since":      since,
+		})
+	}
+}
+
+// handleThreatGraphProcess returns full process tree for a specific process name on a host.
+func handleThreatGraphProcess(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		host        := r.URL.Query().Get("host")
+		processName := r.URL.Query().Get("process")
+		since       := time.Now().Add(-24 * time.Hour)
+
+		// Get all events related to this process
+		f := store.EventFilter{
+			Host:        host,
+			ProcessName: processName,
+			Since:       since,
+			Limit:       500,
+		}
+		events, _, err := db.QueryEvents(r.Context(), f)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "query failed"})
+			return
+		}
+
+		writeJSON(w, 200, map[string]interface{}{
+			"host":    host,
+			"process": processName,
+			"events":  events,
+		})
+	}
+}
