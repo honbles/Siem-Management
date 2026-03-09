@@ -461,9 +461,11 @@ func handleStats(db *store.DB) http.HandlerFunc {
 		bySeverity, _ := db.EventsBySeverity(r.Context())
 		byType, _ := db.EventsByType(r.Context())
 		agentStats, _ := db.AgentStats(r.Context())
+		dashData, _ := db.DashboardStats(r.Context())
 		writeJSON(w, 200, map[string]interface{}{
 			"summary": summary, "timeline": timeline,
 			"by_severity": bySeverity, "by_type": byType, "agents": agentStats,
+			"dashboard": dashData,
 		})
 	}
 }
@@ -557,6 +559,21 @@ func handleListDetections() http.HandlerFunc {
 			out[i] = SigInfo{s.ID, s.Name, s.Description, s.Severity, s.MITRE, s.Category}
 		}
 		writeJSON(w, 200, map[string]interface{}{"signatures": out, "count": len(out)})
+	}
+}
+
+
+// handleThreatIntelHost returns threat intel scoped to a single host
+func handleThreatIntelHost(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		host := r.PathValue("host")
+		hours := 24
+		if s := r.URL.Query().Get("hours"); s != "" {
+			if v, err := strconv.Atoi(s); err == nil { hours = v }
+		}
+		data, err := db.ThreatIntelHost(r.Context(), host, hours)
+		if err != nil { writeJSON(w, 500, map[string]string{"error": err.Error()}); return }
+		writeJSON(w, 200, data)
 	}
 }
 

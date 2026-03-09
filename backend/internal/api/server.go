@@ -76,7 +76,8 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	protected.HandleFunc("GET /api/v1/threat-intel",        handleThreatIntel(db))
 
 	// Detections
-	protected.HandleFunc("GET /api/v1/threat-graph/{host}", handleThreatGraphHost(db))
+	protected.HandleFunc("GET /api/v1/threat-intel/{host}",   handleThreatIntelHost(db))
+		protected.HandleFunc("GET /api/v1/threat-graph/{host}", handleThreatGraphHost(db))
 	protected.HandleFunc("GET /api/v1/threat-graph-process",   handleThreatGraphProcess(db))
 		protected.HandleFunc("GET /api/v1/detections", handleListDetections())
 

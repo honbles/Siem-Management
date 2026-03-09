@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -260,6 +261,231 @@ func (db *DB) ThreatIntel(ctx context.Context) (map[string]interface{}, error) {
 		rows.Close()
 		result["flagged_domains"] = flagged
 	}
+
+	return result, nil
+}
+
+// ThreatIntelHost returns threat intel scoped to a specific host.
+func (db *DB) ThreatIntelHost(ctx context.Context, host string, hours int) (map[string]interface{}, error) {
+	result := map[string]interface{}{"host": host, "hours": hours}
+	interval := fmt.Sprintf("%d hours", hours)
+
+	run := func(q string, args ...interface{}) ([]map[string]interface{}, error) {
+		rows, err := db.QueryContext(ctx, q, args...)
+		if err != nil { return nil, err }
+		defer rows.Close()
+		cols, _ := rows.Columns()
+		var out []map[string]interface{}
+		for rows.Next() {
+			vals := make([]interface{}, len(cols))
+			ptrs := make([]interface{}, len(cols))
+			for i := range vals { ptrs[i] = &vals[i] }
+			rows.Scan(ptrs...)
+			row := map[string]interface{}{}
+			for i, c := range cols { row[c] = vals[i] }
+			out = append(out, row)
+		}
+		return out, nil
+	}
+
+	// Top DNS domains
+	if rows, err := run(`
+		SELECT dst_ip as domain, COUNT(*) as count
+		FROM events
+		WHERE host ILIKE $1 AND event_type = 'dns'
+		  AND dst_ip IS NOT NULL AND dst_ip != ''
+		  AND time > NOW() - ($2 || ' hours')::interval
+		GROUP BY dst_ip ORDER BY count DESC LIMIT 25
+	`, "%"+host+"%", interval); err == nil { result["top_domains"] = rows }
+
+	// Top destination IPs/ports
+	if rows, err := run(`
+		SELECT dst_ip, dst_port, proto, COUNT(*) as count
+		FROM events
+		WHERE host ILIKE $1 AND event_type = 'network'
+		  AND dst_ip IS NOT NULL AND dst_ip != ''
+		  AND time > NOW() - ($2 || ' hours')::interval
+		GROUP BY dst_ip, dst_port, proto ORDER BY count DESC LIMIT 20
+	`, "%"+host+"%", interval); err == nil { result["top_connections"] = rows }
+
+	// Top processes by event count
+	if rows, err := run(`
+		SELECT process_name, COUNT(*) as count, MAX(severity) as max_severity
+		FROM events
+		WHERE host ILIKE $1
+		  AND process_name IS NOT NULL AND process_name != ''
+		  AND time > NOW() - ($2 || ' hours')::interval
+		GROUP BY process_name ORDER BY count DESC LIMIT 20
+	`, "%"+host+"%", interval); err == nil { result["top_processes"] = rows }
+
+	// Top users
+	if rows, err := run(`
+		SELECT user_name, COUNT(*) as count, MAX(severity) as max_severity
+		FROM events
+		WHERE host ILIKE $1
+		  AND user_name IS NOT NULL AND user_name != ''
+		  AND time > NOW() - ($2 || ' hours')::interval
+		GROUP BY user_name ORDER BY count DESC LIMIT 15
+	`, "%"+host+"%", interval); err == nil { result["top_users"] = rows }
+
+	// Top registry keys
+	if rows, err := run(`
+		SELECT COALESCE(NULLIF(reg_key,''), raw->>'key', raw->>'TargetObject') as reg_key,
+		       COUNT(*) as count
+		FROM events
+		WHERE host ILIKE $1 AND event_type = 'registry'
+		  AND time > NOW() - ($2 || ' hours')::interval
+		  AND COALESCE(NULLIF(reg_key,''), raw->>'key', raw->>'TargetObject') IS NOT NULL
+		GROUP BY 1 ORDER BY count DESC LIMIT 15
+	`, "%"+host+"%", interval); err == nil { result["top_registry"] = rows }
+
+	// Top file paths
+	if rows, err := run(`
+		SELECT COALESCE(NULLIF(file_path,''), raw->>'path') as file_path,
+		       COUNT(*) as count
+		FROM events
+		WHERE host ILIKE $1 AND event_type = 'file'
+		  AND time > NOW() - ($2 || ' hours')::interval
+		  AND COALESCE(NULLIF(file_path,''), raw->>'path') IS NOT NULL
+		GROUP BY 1 ORDER BY count DESC LIMIT 15
+	`, "%"+host+"%", interval); err == nil { result["top_files"] = rows }
+
+	// High severity events
+	if rows, err := run(`
+		SELECT id, time, event_type, severity, source,
+		       COALESCE(NULLIF(process_name,''), '') as process_name,
+		       COALESCE(NULLIF(command_line,''), '') as command_line,
+		       COALESCE(NULLIF(dst_ip,''), '') as dst_ip,
+		       COALESCE(NULLIF(file_path,''), raw->>'path', '') as file_path
+		FROM events
+		WHERE host ILIKE $1 AND severity >= 3
+		  AND time > NOW() - ($2 || ' hours')::interval
+		ORDER BY severity DESC, time DESC LIMIT 30
+	`, "%"+host+"%", interval); err == nil { result["high_severity"] = rows }
+
+	// Event type summary
+	if rows, err := run(`
+		SELECT event_type, COUNT(*) as count, MAX(severity) as max_severity
+		FROM events
+		WHERE host ILIKE $1
+		  AND time > NOW() - ($2 || ' hours')::interval
+		GROUP BY event_type ORDER BY count DESC
+	`, "%"+host+"%", interval); err == nil { result["event_types"] = rows }
+
+	// Timeline (hourly buckets)
+	if rows, err := run(`
+		SELECT date_trunc('hour', time) as hour, COUNT(*) as count
+		FROM events
+		WHERE host ILIKE $1
+		  AND time > NOW() - ($2 || ' hours')::interval
+		GROUP BY 1 ORDER BY 1
+	`, "%"+host+"%", interval); err == nil { result["timeline"] = rows }
+
+	return result, nil
+}
+
+// DashboardStats returns enriched stats for the new interactive dashboard.
+func (db *DB) DashboardStats(ctx context.Context) (map[string]interface{}, error) {
+	result := map[string]interface{}{}
+
+	run := func(q string, args ...interface{}) []map[string]interface{} {
+		rows, err := db.QueryContext(ctx, q, args...)
+		if err != nil { return nil }
+		defer rows.Close()
+		cols, _ := rows.Columns()
+		var out []map[string]interface{}
+		for rows.Next() {
+			vals := make([]interface{}, len(cols))
+			ptrs := make([]interface{}, len(cols))
+			for i := range vals { ptrs[i] = &vals[i] }
+			rows.Scan(ptrs...)
+			row := map[string]interface{}{}
+			for i, c := range cols { row[c] = vals[i] }
+			out = append(out, row)
+		}
+		return out
+	}
+
+	// Per-host event counts + last event time + max severity in 24h
+	result["hosts_activity"] = run(`
+		SELECT host, COUNT(*) as event_count,
+		       MAX(severity) as max_severity,
+		       MAX(time) as last_event
+		FROM events
+		WHERE time > NOW() - INTERVAL '24 hours'
+		GROUP BY host ORDER BY event_count DESC LIMIT 20
+	`)
+
+	// Recent open alerts with severity
+	result["recent_alerts"] = run(`
+		SELECT id, title, severity, status, host, created_at
+		FROM alerts
+		WHERE status = 'open'
+		ORDER BY severity DESC, created_at DESC
+		LIMIT 10
+	`)
+
+	// Top processes generating events (last 24h)
+	result["top_processes"] = run(`
+		SELECT process_name, COUNT(*) as count, MAX(severity) as max_severity,
+		       host
+		FROM events
+		WHERE process_name IS NOT NULL AND process_name != ''
+		  AND time > NOW() - INTERVAL '24 hours'
+		GROUP BY process_name, host
+		ORDER BY max_severity DESC, count DESC
+		LIMIT 15
+	`)
+
+	// Top DNS domains (last 24h)
+	result["top_domains"] = run(`
+		SELECT dst_ip as domain, COUNT(*) as count, host
+		FROM events
+		WHERE event_type = 'dns' AND dst_ip IS NOT NULL AND dst_ip != ''
+		  AND time > NOW() - INTERVAL '24 hours'
+		GROUP BY dst_ip, host
+		ORDER BY count DESC LIMIT 15
+	`)
+
+	// Critical/High events last 24h (for feed)
+	result["threat_feed"] = run(`
+		SELECT id, time, host, event_type, severity, source,
+		       COALESCE(NULLIF(process_name,''),'') as process_name,
+		       COALESCE(NULLIF(command_line,''),'') as command_line,
+		       COALESCE(NULLIF(dst_ip,''),'') as dst_ip,
+		       COALESCE(NULLIF(file_path,''), raw->>'path', '') as file_path
+		FROM events
+		WHERE severity >= 3
+		  AND time > NOW() - INTERVAL '24 hours'
+		ORDER BY severity DESC, time DESC
+		LIMIT 50
+	`)
+
+	// Events per hour for last 48h broken out by severity band
+	result["timeline_48h"] = run(`
+		SELECT date_trunc('hour', time) as hour,
+		       COUNT(*) FILTER (WHERE severity >= 4) as high,
+		       COUNT(*) FILTER (WHERE severity = 3) as medium,
+		       COUNT(*) FILTER (WHERE severity <= 2) as low
+		FROM events
+		WHERE time > NOW() - INTERVAL '48 hours'
+		GROUP BY 1 ORDER BY 1
+	`)
+
+	// Agent health
+	result["agents"] = run(`
+		SELECT id, hostname, os, last_ip,
+		       (last_seen > NOW() - INTERVAL '2 minutes') as online,
+		       last_seen, version
+		FROM agents ORDER BY hostname
+	`)
+
+	// Event type counts
+	result["by_type"] = run(`
+		SELECT event_type, COUNT(*) as count
+		FROM events WHERE time > NOW() - INTERVAL '24 hours'
+		GROUP BY event_type ORDER BY count DESC
+	`)
 
 	return result, nil
 }
