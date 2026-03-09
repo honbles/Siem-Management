@@ -1,6 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Settings, Search, Zap } from 'lucide-react'
-import logo from '../assets/logo.svg'
 
 const links = [
   { to: '/',             label: 'Dashboard',    icon: LayoutDashboard },
@@ -32,7 +31,42 @@ export function Navbar({ user }) {
   return (
     <aside className="w-56 min-h-screen bg-siem-surface border-r border-siem-border flex flex-col">
       <div className="flex items-center gap-3 px-4 py-4 border-b border-siem-border">
-        <img src={logo} alt="ObsidianWatch" className="w-9 h-9 shrink-0" />
+        <svg width="36" height="36" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+          <defs>
+            <radialGradient id="nb-glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#00d4ff" stopOpacity="0.35"/>
+              <stop offset="100%" stopColor="#00d4ff" stopOpacity="0"/>
+            </radialGradient>
+            <radialGradient id="nb-lens" cx="38%" cy="35%" r="60%">
+              <stop offset="0%" stopColor="#1a3a4a"/>
+              <stop offset="60%" stopColor="#0a1a22"/>
+              <stop offset="100%" stopColor="#040e14"/>
+            </radialGradient>
+            <radialGradient id="nb-iris" cx="40%" cy="38%" r="55%">
+              <stop offset="0%" stopColor="#1e5a6e"/>
+              <stop offset="50%" stopColor="#0d3040"/>
+              <stop offset="100%" stopColor="#061820"/>
+            </radialGradient>
+            <radialGradient id="nb-pupil" cx="42%" cy="40%" r="55%">
+              <stop offset="0%" stopColor="#00d4ff" stopOpacity="0.9"/>
+              <stop offset="40%" stopColor="#0088aa"/>
+              <stop offset="100%" stopColor="#003344"/>
+            </radialGradient>
+          </defs>
+          <circle cx="110" cy="110" r="95" fill="url(#nb-glow)"/>
+          <polygon points="110,12 193,59 193,161 110,208 27,161 27,59" fill="#06111a" stroke="#1a3a4a" strokeWidth="1.5"/>
+          <polygon points="110,22 183,65 183,155 110,198 37,155 37,65" fill="none" stroke="#00d4ff" strokeWidth="0.5" strokeOpacity="0.3"/>
+          <circle cx="110" cy="108" r="62" fill="url(#nb-lens)"/>
+          <circle cx="110" cy="108" r="62" fill="none" stroke="#00d4ff" strokeWidth="1.2" strokeOpacity="0.6"/>
+          <circle cx="110" cy="108" r="42" fill="url(#nb-iris)"/>
+          <circle cx="110" cy="108" r="42" fill="none" stroke="#00d4ff" strokeWidth="0.8" strokeOpacity="0.5"/>
+          <circle cx="110" cy="108" r="36" fill="none" stroke="#00d4ff" strokeWidth="0.4" strokeOpacity="0.2" strokeDasharray="3 4"/>
+          <circle cx="110" cy="108" r="22" fill="url(#nb-pupil)"/>
+          <circle cx="110" cy="108" r="22" fill="none" stroke="#00d4ff" strokeWidth="1" strokeOpacity="0.8"/>
+          <circle cx="110" cy="108" r="10" fill="#001822"/>
+          <circle cx="110" cy="108" r="10" fill="none" stroke="#00d4ff" strokeWidth="1.5" strokeOpacity="0.9"/>
+          <ellipse cx="96" cy="92" rx="9" ry="6" fill="white" fillOpacity="0.1" transform="rotate(-30 96 92)"/>
+        </svg>
         <div>
           <div className="font-bold text-siem-text text-sm tracking-wide leading-tight">ObsidianWatch</div>
           <div className="text-[10px] text-siem-muted tracking-widest uppercase">v0.3.1</div>
