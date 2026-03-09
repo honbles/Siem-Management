@@ -19,6 +19,11 @@ type Alert struct {
 	EventID        string     `json:"event_id"`
 	AcknowledgedBy *string    `json:"acknowledged_by,omitempty"`
 	AcknowledgedAt *time.Time `json:"acknowledged_at,omitempty"`
+	AssignedTo     *string    `json:"assigned_to,omitempty"`
+	CaseNotes      *string    `json:"case_notes,omitempty"`
+	ClosedBy       *string    `json:"closed_by,omitempty"`
+	ClosedAt       *time.Time `json:"closed_at,omitempty"`
+	ReviewComment  *string    `json:"review_comment,omitempty"`
 }
 
 func (db *DB) ListAlerts(ctx context.Context, status string, limit int) ([]Alert, error) {
@@ -28,7 +33,8 @@ func (db *DB) ListAlerts(ctx context.Context, status string, limit int) ([]Alert
 	query := `
 		SELECT id, created_at, title, description, severity, status,
 		       COALESCE(agent_id,''), COALESCE(host,''), COALESCE(event_type,''),
-		       COALESCE(event_id,''), acknowledged_by, acknowledged_at
+		       COALESCE(event_id,''), acknowledged_by, acknowledged_at,
+		       assigned_to, case_notes, closed_by, closed_at, review_comment
 		FROM alerts`
 	args := []interface{}{}
 	if status != "" {
@@ -50,6 +56,7 @@ func (db *DB) ListAlerts(ctx context.Context, status string, limit int) ([]Alert
 			&a.ID, &a.CreatedAt, &a.Title, &a.Description, &a.Severity, &a.Status,
 			&a.AgentID, &a.Host, &a.EventType, &a.EventID,
 			&a.AcknowledgedBy, &a.AcknowledgedAt,
+			&a.AssignedTo, &a.CaseNotes, &a.ClosedBy, &a.ClosedAt, &a.ReviewComment,
 		); err != nil {
 			return nil, err
 		}
@@ -124,7 +131,8 @@ func (db *DB) GetAlert(ctx context.Context, id int64) (*Alert, error) {
 	err := db.QueryRowContext(ctx, `
 		SELECT id, created_at, title, description, severity, status,
 		       COALESCE(agent_id,''), COALESCE(host,''), COALESCE(event_type,''),
-		       COALESCE(event_id,''), acknowledged_by, acknowledged_at
+		       COALESCE(event_id,''), acknowledged_by, acknowledged_at,
+		       assigned_to, case_notes, closed_by, closed_at, review_comment
 		FROM alerts WHERE id = $1
 	`, id).Scan(
 		&a.ID, &a.CreatedAt, &a.Title, &a.Description, &a.Severity, &a.Status,
@@ -135,4 +143,41 @@ func (db *DB) GetAlert(ctx context.Context, id int64) (*Alert, error) {
 		return nil, err
 	}
 	return &a, nil
+}
+
+// AssignAlert assigns an alert to a user and creates a case.
+func (db *DB) AssignAlert(ctx context.Context, id int64, assignedTo, assignedBy string, notes string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE alerts
+		SET status = 'acknowledged',
+		    assigned_to = $1,
+		    acknowledged_by = $2,
+		    acknowledged_at = NOW(),
+		    case_notes = NULLIF($3, '')
+		WHERE id = $4 AND status = 'open'
+	`, assignedTo, assignedBy, notes, id)
+	return err
+}
+
+// UpdateCaseNotes updates the notes on an acknowledged alert.
+func (db *DB) UpdateCaseNotes(ctx context.Context, id int64, notes string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE alerts SET case_notes = $1 WHERE id = $2
+	`, notes, id)
+	return err
+}
+
+// CloseAlertWithReview closes an alert and records a review comment.
+func (db *DB) CloseAlertWithReview(ctx context.Context, id int64, username, comment string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE alerts
+		SET status = 'closed',
+		    closed_by = $1,
+		    closed_at = NOW(),
+		    review_comment = NULLIF($2, ''),
+		    acknowledged_by = COALESCE(acknowledged_by, $1),
+		    acknowledged_at = COALESCE(acknowledged_at, NOW())
+		WHERE id = $3
+	`, username, comment, id)
+	return err
 }

@@ -7,14 +7,16 @@ import (
 )
 
 type Agent struct {
-	ID         string    `json:"id"`
-	Hostname   string    `json:"hostname"`
-	OS         string    `json:"os"`
-	Version    string    `json:"version"`
-	FirstSeen  time.Time `json:"first_seen"`
-	LastSeen   time.Time `json:"last_seen"`
-	LastIP     string    `json:"last_ip"`
-	EventCount int64     `json:"event_count"`
+	ID           string    `json:"id"`
+	Hostname     string    `json:"hostname"`
+	OS           string    `json:"os"`
+	Version      string    `json:"version"`
+	FirstSeen    time.Time `json:"first_seen"`
+	LastSeen     time.Time `json:"last_seen"`
+	LastIP       string    `json:"last_ip"`
+	EventCount   int64     `json:"event_count"`
+	InstallKey   string    `json:"install_key"`
+	TamperLocked bool      `json:"tamper_locked"`
 	// Computed
 	Online bool `json:"online"`
 }
@@ -23,7 +25,8 @@ type Agent struct {
 func (db *DB) ListAgents(ctx context.Context) ([]Agent, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, hostname, os, version, first_seen, last_seen,
-		       COALESCE(last_ip, ''), event_count
+		       COALESCE(last_ip, ''), event_count,
+		       COALESCE(install_key, ''), COALESCE(tamper_locked, false)
 		FROM agents
 		ORDER BY last_seen DESC
 	`)
@@ -39,6 +42,7 @@ func (db *DB) ListAgents(ctx context.Context) ([]Agent, error) {
 		if err := rows.Scan(
 			&a.ID, &a.Hostname, &a.OS, &a.Version,
 			&a.FirstSeen, &a.LastSeen, &a.LastIP, &a.EventCount,
+			&a.InstallKey, &a.TamperLocked,
 		); err != nil {
 			return nil, err
 		}
@@ -79,4 +83,44 @@ func (db *DB) AgentStats(ctx context.Context) ([]map[string]interface{}, error) 
 		})
 	}
 	return results, rows.Err()
+}
+
+// GetAgentByInstallKey looks up an agent by its install key (used by agent on registration).
+func (db *DB) GetAgentByInstallKey(ctx context.Context, key string) (*Agent, error) {
+	var a Agent
+	err := db.QueryRowContext(ctx, `
+		SELECT id, hostname, os, version, first_seen, last_seen,
+		       COALESCE(last_ip,''), event_count,
+		       COALESCE(install_key,''), COALESCE(tamper_locked,false)
+		FROM agents WHERE install_key = $1
+	`, key).Scan(
+		&a.ID, &a.Hostname, &a.OS, &a.Version,
+		&a.FirstSeen, &a.LastSeen, &a.LastIP, &a.EventCount,
+		&a.InstallKey, &a.TamperLocked,
+	)
+	if err != nil {
+		return nil, err
+	}
+	a.Online = a.LastSeen.After(time.Now().Add(-2 * time.Minute))
+	return &a, nil
+}
+
+// SetTamperLock enables or disables tamper protection for an agent.
+func (db *DB) SetTamperLock(ctx context.Context, agentID string, locked bool) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE agents SET tamper_locked = $1 WHERE id = $2`,
+		locked, agentID)
+	return err
+}
+
+// RegenerateInstallKey generates a new install key for an agent.
+func (db *DB) RegenerateInstallKey(ctx context.Context, agentID string) (string, error) {
+	var key string
+	err := db.QueryRowContext(ctx, `
+		UPDATE agents
+		SET install_key = encode(gen_random_bytes(16), 'hex')
+		WHERE id = $1
+		RETURNING install_key
+	`, agentID).Scan(&key)
+	return key, err
 }

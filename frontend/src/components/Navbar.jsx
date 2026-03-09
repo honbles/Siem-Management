@@ -1,12 +1,14 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen, Users, ClipboardList, Key, Settings, Search, Zap, GitBranch } from 'lucide-react'
+import { LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen,
+         Users, ClipboardList, Key, Settings, Search, Zap, GitBranch, Sun, Moon } from 'lucide-react'
+import { useTheme } from '../api/useTheme'
 
 const links = [
   { to: '/',             label: 'Dashboard',    icon: LayoutDashboard },
   { to: '/events',       label: 'Events',       icon: Activity },
-  { to: '/search',        label: 'Search',       icon: Search },
-  { to: '/detections',    label: 'Detections',   icon: Zap },
-  { to: '/threat-graph',  label: 'Threat Graph', icon: GitBranch },
+  { to: '/search',       label: 'Search',       icon: Search },
+  { to: '/detections',   label: 'Detections',   icon: Zap },
+  { to: '/threat-graph', label: 'Threat Graph', icon: GitBranch },
   { to: '/agents',       label: 'Agents',       icon: Monitor },
   { to: '/alerts',       label: 'Alerts',       icon: Bell },
   { to: '/alert-rules',  label: 'Alert Rules',  icon: BookOpen },
@@ -14,13 +16,14 @@ const links = [
 ]
 
 const adminLinks = [
-  { to: '/users',        label: 'Users',        icon: Users },
-  { to: '/audit-log',    label: 'Audit Log',    icon: ClipboardList },
-  { to: '/settings',     label: 'Settings',     icon: Settings },
+  { to: '/users',     label: 'Users',     icon: Users },
+  { to: '/audit-log', label: 'Audit Log', icon: ClipboardList },
+  { to: '/settings',  label: 'Settings',  icon: Settings },
 ]
 
 export function Navbar({ user }) {
   const navigate = useNavigate()
+  const { theme, toggle } = useTheme()
 
   const logout = () => {
     localStorage.removeItem('token')
@@ -61,11 +64,9 @@ export function Navbar({ user }) {
           <circle cx="110" cy="108" r="62" fill="none" stroke="#00d4ff" strokeWidth="1.2" strokeOpacity="0.6"/>
           <circle cx="110" cy="108" r="42" fill="url(#nb-iris)"/>
           <circle cx="110" cy="108" r="42" fill="none" stroke="#00d4ff" strokeWidth="0.8" strokeOpacity="0.5"/>
-          <circle cx="110" cy="108" r="36" fill="none" stroke="#00d4ff" strokeWidth="0.4" strokeOpacity="0.2" strokeDasharray="3 4"/>
           <circle cx="110" cy="108" r="22" fill="url(#nb-pupil)"/>
           <circle cx="110" cy="108" r="22" fill="none" stroke="#00d4ff" strokeWidth="1" strokeOpacity="0.8"/>
           <circle cx="110" cy="108" r="10" fill="#001822"/>
-          <circle cx="110" cy="108" r="10" fill="none" stroke="#00d4ff" strokeWidth="1.5" strokeOpacity="0.9"/>
           <ellipse cx="96" cy="92" rx="9" ry="6" fill="white" fillOpacity="0.1" transform="rotate(-30 96 92)"/>
         </svg>
         <div>
@@ -74,7 +75,7 @@ export function Navbar({ user }) {
         </div>
       </div>
 
-      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
         {links.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} end={to === '/'}
             className={({ isActive }) =>
@@ -83,7 +84,7 @@ export function Navbar({ user }) {
               }`
             }
           >
-            <Icon size={16} />{label}
+            <Icon size={15} />{label}
           </NavLink>
         ))}
 
@@ -98,17 +99,26 @@ export function Navbar({ user }) {
                   }`
                 }
               >
-                <Icon size={16} />{label}
+                <Icon size={15} />{label}
               </NavLink>
             ))}
           </>
         )}
       </nav>
 
-      <div className="px-4 py-4 border-t border-siem-border">
-        <div className="text-xs text-siem-muted mb-0.5">{user?.username}</div>
-        <div className="text-xs text-siem-muted/60 mb-3 capitalize">{user?.role}</div>
-        <NavLink to="/change-password" className="flex items-center gap-2 text-xs text-siem-muted hover:text-siem-text mb-2 transition-colors">
+      <div className="px-4 py-4 border-t border-siem-border space-y-3">
+        {/* Theme toggle */}
+        <button onClick={toggle}
+          className="flex items-center gap-2 w-full px-3 py-1.5 rounded-lg border border-siem-border hover:border-siem-accent/40 text-siem-muted hover:text-siem-text transition-all text-xs">
+          {theme === 'dark'
+            ? <><Sun size={13} className="text-yellow-400" /> Light mode</>
+            : <><Moon size={13} className="text-siem-accent" /> Dark mode</>
+          }
+        </button>
+
+        <div className="text-xs text-siem-muted">{user?.username}</div>
+        <div className="text-xs text-siem-muted/60 -mt-2 capitalize">{user?.role}</div>
+        <NavLink to="/change-password" className="flex items-center gap-2 text-xs text-siem-muted hover:text-siem-text transition-colors">
           <Key size={13} /> Change password
         </NavLink>
         <button onClick={logout} className="flex items-center gap-2 text-xs text-siem-muted hover:text-siem-red transition-colors">

@@ -34,6 +34,7 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 
 	// Public
 	mux.HandleFunc("GET /health", handleHealth(db))
+	mux.HandleFunc("GET /api/v1/verify-install-key", handleVerifyInstallKey(db))
 	mux.HandleFunc("POST /auth/login", handleLogin(db, jwt, logger))
 
 	// Protected
@@ -49,12 +50,17 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	// Agents
 	protected.HandleFunc("GET /api/v1/agents",              handleListAgents(db))
 	protected.HandleFunc("GET /api/v1/agents/{id}",         handleGetAgent(db))
+	protected.HandleFunc("PATCH /api/v1/agents/{id}/tamper", handleSetTamperLock(db))
+	protected.HandleFunc("POST /api/v1/agents/{id}/regen-key", handleRegenerateKey(db))
 
 	// Alerts
 	protected.HandleFunc("GET /api/v1/alerts",                        handleListAlerts(db))
 	protected.HandleFunc("POST /api/v1/alerts",                       handleCreateAlert(db, mailer))
 	protected.HandleFunc("GET /api/v1/alerts/{id}",                   handleGetAlert(db))
 	protected.HandleFunc("PATCH /api/v1/alerts/{id}/acknowledge",     handleAcknowledgeAlert(db))
+	protected.HandleFunc("PATCH /api/v1/alerts/{id}/assign",          handleAssignAlert(db))
+	protected.HandleFunc("PATCH /api/v1/alerts/{id}/notes",           handleUpdateCaseNotes(db))
+	protected.HandleFunc("PATCH /api/v1/alerts/{id}/close-review",    handleCloseWithReview(db))
 	protected.HandleFunc("PATCH /api/v1/alerts/{id}/close",           handleCloseAlert(db))
 
 	// Alert Rules

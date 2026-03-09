@@ -563,6 +563,115 @@ func handleListDetections() http.HandlerFunc {
 }
 
 
+
+// ── Tamper Protection ─────────────────────────────────────────────────────────
+
+func handleSetTamperLock(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("id")
+		var body struct { Locked bool `json:"locked"` }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid body"})
+			return
+		}
+		if err := db.SetTamperLock(r.Context(), agentID, body.Locked); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"locked": body.Locked})
+	}
+}
+
+func handleRegenerateKey(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.PathValue("id")
+		key, err := db.RegenerateInstallKey(r.Context(), agentID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"install_key": key})
+	}
+}
+
+// ── Case Management ───────────────────────────────────────────────────────────
+
+func handleAssignAlert(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil { writeJSON(w, 400, map[string]string{"error": "invalid id"}); return }
+		var body struct {
+			AssignedTo string `json:"assigned_to"`
+			Notes      string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid body"})
+			return
+		}
+		claims := auth.GetClaims(r)
+		if err := db.AssignAlert(r.Context(), id, body.AssignedTo, claims.Username, body.Notes); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		db.WriteAudit(r.Context(), claims.Username, "assign_alert", strconv.FormatInt(id, 10), "assigned to "+body.AssignedTo, clientIP(r))
+		writeJSON(w, 200, map[string]string{"status": "acknowledged"})
+	}
+}
+
+func handleUpdateCaseNotes(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil { writeJSON(w, 400, map[string]string{"error": "invalid id"}); return }
+		var body struct { Notes string `json:"notes"` }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid body"})
+			return
+		}
+		if err := db.UpdateCaseNotes(r.Context(), id, body.Notes); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"status": "ok"})
+	}
+}
+
+func handleCloseWithReview(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil { writeJSON(w, 400, map[string]string{"error": "invalid id"}); return }
+		var body struct { Comment string `json:"comment"` }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid body"})
+			return
+		}
+		claims := auth.GetClaims(r)
+		if err := db.CloseAlertWithReview(r.Context(), id, claims.Username, body.Comment); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		db.WriteAudit(r.Context(), claims.Username, "close_alert", strconv.FormatInt(id, 10), body.Comment, clientIP(r))
+		writeJSON(w, 200, map[string]string{"status": "closed"})
+	}
+}
+
+
+// handleVerifyInstallKey allows agents to verify their install key on service install
+func handleVerifyInstallKey(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		if key == "" {
+			writeJSON(w, 400, map[string]string{"error": "key required"})
+			return
+		}
+		agent, err := db.GetAgentByInstallKey(r.Context(), key)
+		if err != nil || agent == nil {
+			writeJSON(w, 403, map[string]string{"error": "invalid key"})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"status": "ok", "hostname": agent.Hostname})
+	}
+}
+
 // handleThreatIntelHost returns threat intel scoped to a single host
 func handleThreatIntelHost(db *store.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
