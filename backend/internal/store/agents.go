@@ -105,6 +105,19 @@ func (db *DB) GetAgentByInstallKey(ctx context.Context, key string) (*Agent, err
 	return &a, nil
 }
 
+// SetInstallKey updates the install/tamper key for an agent.
+// Uses UPSERT so it works even if the agent hasn't connected yet.
+func (db *DB) SetInstallKey(ctx context.Context, agentID, key string) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO agents (id, hostname, first_seen, last_seen, install_key, tamper_locked)
+		VALUES ($1, $1, NOW(), NOW(), $2, true)
+		ON CONFLICT (id) DO UPDATE SET
+			install_key   = EXCLUDED.install_key,
+			tamper_locked = true
+	`, agentID, key)
+	return err
+}
+
 // SetTamperLock enables or disables tamper protection for an agent.
 func (db *DB) SetTamperLock(ctx context.Context, agentID string, locked bool) error {
 	_, err := db.ExecContext(ctx,

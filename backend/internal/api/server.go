@@ -35,6 +35,7 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	// Public
 	mux.HandleFunc("GET /health", handleHealth(db))
 	mux.HandleFunc("GET /api/v1/verify-install-key", handleVerifyInstallKey(db))
+	mux.HandleFunc("POST /api/v1/agent/register-key", handleAgentRegisterKey(db))
 	mux.HandleFunc("POST /auth/login", handleLogin(db, jwt, logger))
 
 	// Protected

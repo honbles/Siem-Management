@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Monitor, Wifi, WifiOff, RefreshCw, Shield, ShieldOff, ShieldAlert,
+import { Monitor, Wifi, WifiOff, Shield, ShieldOff, ShieldAlert,
          Key, Copy, Check, ChevronRight, X, Lock, Unlock, Globe,
-         Apple, Server, Router, Search, AlertTriangle, Eye } from 'lucide-react'
+         Apple, Server, Router, Search, AlertTriangle, Eye, RefreshCw } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import api from '../api/client'
 
@@ -28,21 +28,12 @@ const OS_GROUPS = {
 // ─── Tamper Protection Side Panel ─────────────────────────────────────────────
 function TamperPanel({ agent, onClose, onUpdated }) {
   const [copied, setCopied] = useState(false)
-  const [rekeying, setRekeying] = useState(false)
   const [toggling, setToggling] = useState(false)
 
   const copy = () => {
     navigator.clipboard.writeText(agent.install_key || '')
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-  }
-
-  const regenKey = async () => {
-    setRekeying(true)
-    try {
-      await api.post(`/api/v1/agents/${agent.id}/regen-key`)
-      onUpdated()
-    } finally { setRekeying(false) }
   }
 
   const toggleTamper = async () => {
@@ -104,24 +95,22 @@ function TamperPanel({ agent, onClose, onUpdated }) {
           {/* Install key */}
           <div>
             <div className="text-[10px] uppercase tracking-wider text-siem-muted font-semibold mb-2 flex items-center gap-1">
-              <Key size={9}/> Install Key
+              <Key size={9}/> Tamper Protection Password
             </div>
             <div className="bg-siem-bg border border-siem-border rounded-xl p-3 flex items-center gap-2">
               <code className="text-emerald-300 font-mono text-sm flex-1 truncate">
-                {agent.install_key || 'No key generated'}
+                {agent.install_key || 'Not yet set — will appear after first install'}
               </code>
-              <button onClick={copy}
-                className="shrink-0 p-1.5 rounded border border-siem-border hover:border-siem-accent/40 text-siem-muted hover:text-siem-text transition-colors">
-                {copied ? <Check size={13} className="text-emerald-400"/> : <Copy size={13}/>}
-              </button>
+              {agent.install_key && (
+                <button onClick={copy}
+                  className="shrink-0 p-1.5 rounded border border-siem-border hover:border-siem-accent/40 text-siem-muted hover:text-siem-text transition-colors">
+                  {copied ? <Check size={13} className="text-emerald-400"/> : <Copy size={13}/>}
+                </button>
+              )}
             </div>
-            <div className="mt-2 flex items-center justify-between">
-              <p className="text-[9px] text-siem-muted">This key must be in agent.yaml before running the install command</p>
-              <button onClick={regenKey} disabled={rekeying}
-                className="text-[9px] text-siem-muted hover:text-siem-accent transition-colors flex items-center gap-1">
-                <RefreshCw size={8}/> {rekeying ? 'Regenerating…' : 'Regenerate'}
-              </button>
-            </div>
+            <p className="text-[9px] text-siem-muted mt-1.5">
+              This password is set by the operator at install time and required to uninstall.
+            </p>
           </div>
 
           {/* How to install */}
@@ -131,25 +120,36 @@ function TamperPanel({ agent, onClose, onUpdated }) {
             </div>
             <div className="space-y-3">
               <div className="bg-siem-bg border border-siem-border rounded-lg p-3">
-                <div className="text-[9px] text-siem-muted mb-1.5 font-semibold">1. Add to agent.yaml</div>
-                <code className="text-[10px] font-mono text-cyan-300 block">
-                  forwarder:<br/>
-                  {'  '}install_key: {agent.install_key || '<generate key above>'}
+                <div className="text-[9px] text-siem-muted mb-1.5 font-semibold">1. Run the install command</div>
+                <code className="text-[10px] font-mono text-emerald-300 block break-all">
+                  .\obsidianwatch-win-agent-V1.0.exe -config "agent.yaml" install
                 </code>
               </div>
               <div className="bg-siem-bg border border-siem-border rounded-lg p-3">
-                <div className="text-[9px] text-siem-muted mb-1.5 font-semibold">2. Run install command</div>
-                <code className="text-[10px] font-mono text-emerald-300 block break-all">
-                  .\obsidianwatch-win-agent-V1.0.exe -config "agent.yaml" install
+                <div className="text-[9px] text-siem-muted mb-1.5 font-semibold">2. Enter a tamper protection password when prompted</div>
+                <code className="text-[10px] font-mono text-cyan-300 block">
+                  Enter tamper protection password: ••••••••••••
+                </code>
+                <p className="text-[9px] text-siem-muted mt-1">
+                  Choose a strong password (8+ chars). It will be sent to this dashboard and shown above.
+                  Save it — you need it to uninstall.
+                </p>
+              </div>
+              <div className="bg-siem-bg border border-siem-border rounded-lg p-3">
+                <div className="text-[9px] text-siem-muted mb-1.5 font-semibold">3. To uninstall — password is required</div>
+                <code className="text-[10px] font-mono text-red-300 block break-all">
+                  .\obsidianwatch-win-agent-V1.0.exe -config "agent.yaml" uninstall
+                </code>
+                <code className="text-[10px] font-mono text-siem-muted block mt-1">
+                  Enter Install Key: ••••••••••••
                 </code>
               </div>
               <div className="bg-amber-950/20 border border-amber-800/40 rounded-lg p-3">
                 <div className="flex items-start gap-2">
                   <AlertTriangle size={11} className="text-amber-400 mt-0.5 shrink-0"/>
                   <div className="text-[9px] text-amber-400/80">
-                    Running without <code className="text-amber-300">install</code> verb does NOT check the key.
+                    Running without <code className="text-amber-300">install</code> verb does NOT check the password.
                     Tamper protection only applies to the Windows Service installation.
-                    Without the install verb, the agent runs interactively as a normal process.
                   </div>
                 </div>
               </div>
@@ -157,9 +157,8 @@ function TamperPanel({ agent, onClose, onUpdated }) {
                 <div className="flex items-start gap-2">
                   <Lock size={11} className="text-red-400 mt-0.5 shrink-0"/>
                   <div className="text-[9px] text-red-400/80">
-                    Once installed with tamper protection enabled, the service DACL is locked.
-                    Even administrators cannot stop or delete the service via SCM.
-                    Only SYSTEM or the key holder can uninstall.
+                    Once installed with tamper protection, the service DACL is locked.
+                    Even administrators cannot stop or delete the service via SCM without the password.
                   </div>
                 </div>
               </div>

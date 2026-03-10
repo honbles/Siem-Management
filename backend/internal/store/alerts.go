@@ -138,6 +138,7 @@ func (db *DB) GetAlert(ctx context.Context, id int64) (*Alert, error) {
 		&a.ID, &a.CreatedAt, &a.Title, &a.Description, &a.Severity, &a.Status,
 		&a.AgentID, &a.Host, &a.EventType, &a.EventID,
 		&a.AcknowledgedBy, &a.AcknowledgedAt,
+		&a.AssignedTo, &a.CaseNotes, &a.ClosedBy, &a.ClosedAt, &a.ReviewComment,
 	)
 	if err != nil {
 		return nil, err

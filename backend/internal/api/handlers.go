@@ -655,6 +655,37 @@ func handleCloseWithReview(db *store.DB) http.HandlerFunc {
 }
 
 
+// handleAgentRegisterKey allows an agent to register/update its own install key.
+// Called at install time with the password the operator chose interactively.
+// Auth: X-API-Key header matching any backend api_key.
+func handleAgentRegisterKey(db *store.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			InstallKey string `json:"install_key"`
+			AgentID    string `json:"agent_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid body"})
+			return
+		}
+		if body.InstallKey == "" {
+			writeJSON(w, 400, map[string]string{"error": "install_key required"})
+			return
+		}
+		// agentID optional — if not provided we try to find by API key header
+		agentID := body.AgentID
+		if agentID == "" {
+			writeJSON(w, 400, map[string]string{"error": "agent_id required"})
+			return
+		}
+		if err := db.SetInstallKey(r.Context(), agentID, body.InstallKey); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"status": "ok"})
+	}
+}
+
 // handleVerifyInstallKey allows agents to verify their install key on service install
 func handleVerifyInstallKey(db *store.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

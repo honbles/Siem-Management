@@ -1,6 +1,6 @@
 # ObsidianWatch Management Platform
-# Runs alongside the agent backend on the same server
-# Connects to the existing obsidianwatch-db via the backend's Docker network
+# Requires the backend stack (Obsidianwatch-Backend) to be running first.
+# Both stacks share the 'obsidianwatch' Docker network for DB access.
 
 services:
 
@@ -21,7 +21,7 @@ services:
       retries: 3
     networks:
       - mgmt
-      - backend
+      - obsidianwatch   # join backend network to reach timescaledb
 
   mgmt-ui:
     build:
@@ -40,6 +40,6 @@ services:
 networks:
   mgmt:
     driver: bridge
-  backend:
-    external: true
-    name: docker_default
+  obsidianwatch:
+    external: true   # created by the backend stack — must exist first
+    name: obsidianwatch
