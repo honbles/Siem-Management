@@ -33,8 +33,11 @@ const BROWSERS = new Set(['chrome.exe','msedge.exe','firefox.exe','iexplore.exe'
 function classify(name) {
   if (!name) return 'other'
   const l = name.toLowerCase()
-  if ([...WINDOWS_LEGIT].some(w => l === w)) return 'windows'
-  if ([...CORPORATE].some(c => l === c)) return 'corporate'
+  // Match with and without .exe suffix
+  const withExe = l.endsWith('.exe') ? l : l + '.exe'
+  const bare    = l.endsWith('.exe') ? l.slice(0, -4) : l
+  if (WINDOWS_LEGIT.has(withExe) || WINDOWS_LEGIT.has(bare)) return 'windows'
+  if (CORPORATE.has(withExe) || CORPORATE.has(bare)) return 'corporate'
   return 'other'
 }
 
@@ -405,7 +408,9 @@ function HostCard({agent, onClick, selected}) {
 
 function buildTree(events) {
   const map = {}
-  events.filter(e=>e.event_type==='process'&&e.process_name).forEach(e=>{
+  // Use any event that has a process_name — event_type may be 'raw', 'file', etc.
+  // after enrichFromRaw populates process_name from the JSON blob.
+  events.filter(e=>e.process_name).forEach(e=>{
     const key=`${e.process_name}:${e.pid||0}`
     if (!map[key]) map[key]={name:e.process_name,pid:e.pid||0,ppid:e.ppid||0,commandLine:e.command_line||'',user:e.user_name||'',maxSeverity:e.severity||1,events:0,children:[],_key:key}
     const p=map[key]; p.events++
@@ -413,13 +418,6 @@ function buildTree(events) {
     if(!p.commandLine&&e.command_line)p.commandLine=e.command_line
     if(!p.user&&e.user_name)p.user=e.user_name
   })
-  if (!Object.keys(map).length) {
-    events.filter(e=>e.process_name).forEach(e=>{
-      const key=e.process_name
-      if(!map[key])map[key]={name:e.process_name,pid:0,ppid:0,commandLine:e.command_line||'',user:e.user_name||'',maxSeverity:e.severity||1,events:0,children:[],_key:key}
-      map[key].events++; if((e.severity||1)>map[key].maxSeverity)map[key].maxSeverity=e.severity
-    })
-  }
   const roots=[], byPid={}
   Object.values(map).forEach(p=>{if(p.pid)byPid[p.pid]=p})
   Object.values(map).forEach(p=>{const par=byPid[p.ppid];if(par&&par._key!==p._key)par.children.push(p);else roots.push(p)})

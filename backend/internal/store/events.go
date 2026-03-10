@@ -72,89 +72,55 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 	where, args, n := []string{"1=1"}, []interface{}{}, 1
 
 	if f.AgentID != "" {
-		where = append(where, fmt.Sprintf("agent_id = $%d", n))
-		args = append(args, f.AgentID)
-		n++
+		where = append(where, fmt.Sprintf("agent_id = $%d", n)); args = append(args, f.AgentID); n++
 	}
 	if f.Host != "" {
-		where = append(where, fmt.Sprintf("host ILIKE $%d", n))
-		args = append(args, "%"+f.Host+"%")
-		n++
+		where = append(where, fmt.Sprintf("host ILIKE $%d", n)); args = append(args, "%"+f.Host+"%"); n++
 	}
 	if f.EventType != "" {
-		where = append(where, fmt.Sprintf("event_type = $%d", n))
-		args = append(args, f.EventType)
-		n++
+		where = append(where, fmt.Sprintf("event_type = $%d", n)); args = append(args, f.EventType); n++
 	}
 	if f.Severity > 0 {
-		where = append(where, fmt.Sprintf("severity >= $%d", n))
-		args = append(args, f.Severity)
-		n++
+		where = append(where, fmt.Sprintf("severity >= $%d", n)); args = append(args, f.Severity); n++
 	}
 	if f.SrcIP != "" {
-		where = append(where, fmt.Sprintf("src_ip = $%d", n))
-		args = append(args, f.SrcIP)
-		n++
+		where = append(where, fmt.Sprintf("src_ip = $%d", n)); args = append(args, f.SrcIP); n++
 	}
 	if f.DstIP != "" {
-		where = append(where, fmt.Sprintf("dst_ip = $%d", n))
-		args = append(args, f.DstIP)
-		n++
+		where = append(where, fmt.Sprintf("dst_ip = $%d", n)); args = append(args, f.DstIP); n++
 	}
 	if f.DstPort > 0 {
-		where = append(where, fmt.Sprintf("dst_port = $%d", n))
-		args = append(args, f.DstPort)
-		n++
+		where = append(where, fmt.Sprintf("dst_port = $%d", n)); args = append(args, f.DstPort); n++
 	}
 	if f.SrcPort > 0 {
-		where = append(where, fmt.Sprintf("src_port = $%d", n))
-		args = append(args, f.SrcPort)
-		n++
+		where = append(where, fmt.Sprintf("src_port = $%d", n)); args = append(args, f.SrcPort); n++
 	}
 	if f.Proto != "" {
-		where = append(where, fmt.Sprintf("proto ILIKE $%d", n))
-		args = append(args, f.Proto)
-		n++
+		where = append(where, fmt.Sprintf("proto ILIKE $%d", n)); args = append(args, f.Proto); n++
 	}
 	if f.UserName != "" {
-		where = append(where, fmt.Sprintf("user_name ILIKE $%d", n))
-		args = append(args, "%"+f.UserName+"%")
-		n++
+		where = append(where, fmt.Sprintf("user_name ILIKE $%d", n)); args = append(args, "%"+f.UserName+"%"); n++
 	}
 	if f.ProcessName != "" {
-		where = append(where, fmt.Sprintf("process_name ILIKE $%d", n))
-		args = append(args, "%"+f.ProcessName+"%")
-		n++
+		where = append(where, fmt.Sprintf("process_name ILIKE $%d", n)); args = append(args, "%"+f.ProcessName+"%"); n++
 	}
 	if f.CommandLine != "" {
-		where = append(where, fmt.Sprintf("command_line ILIKE $%d", n))
-		args = append(args, "%"+f.CommandLine+"%")
-		n++
+		where = append(where, fmt.Sprintf("command_line ILIKE $%d", n)); args = append(args, "%"+f.CommandLine+"%"); n++
 	}
 	if f.ImagePath != "" {
-		where = append(where, fmt.Sprintf("image_path ILIKE $%d", n))
-		args = append(args, "%"+f.ImagePath+"%")
-		n++
+		where = append(where, fmt.Sprintf("image_path ILIKE $%d", n)); args = append(args, "%"+f.ImagePath+"%"); n++
 	}
 	if f.FilePath != "" {
-		where = append(where, fmt.Sprintf("file_path ILIKE $%d", n))
-		args = append(args, "%"+f.FilePath+"%")
-		n++
+		where = append(where, fmt.Sprintf("file_path ILIKE $%d", n)); args = append(args, "%"+f.FilePath+"%"); n++
 	}
 	if f.RegKey != "" {
-		where = append(where, fmt.Sprintf("reg_key ILIKE $%d", n))
-		args = append(args, "%"+f.RegKey+"%")
-		n++
+		where = append(where, fmt.Sprintf("reg_key ILIKE $%d", n)); args = append(args, "%"+f.RegKey+"%"); n++
 	}
 	if f.Channel != "" {
-		where = append(where, fmt.Sprintf("channel ILIKE $%d", n))
-		args = append(args, "%"+f.Channel+"%")
-		n++
+		where = append(where, fmt.Sprintf("channel ILIKE $%d", n)); args = append(args, "%"+f.Channel+"%"); n++
 	}
 	if f.EventID > 0 {
-		where = append(where, fmt.Sprintf("event_id = $%d", n))
-		args = append(args, f.EventID)
-		n++
+		where = append(where, fmt.Sprintf("event_id = $%d", n)); args = append(args, f.EventID); n++
 	}
 	if f.Search != "" {
 		v := "%" + f.Search + "%"
@@ -169,14 +135,10 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 		n += 10
 	}
 	if !f.Since.IsZero() {
-		where = append(where, fmt.Sprintf("time >= $%d", n))
-		args = append(args, f.Since.UTC())
-		n++
+		where = append(where, fmt.Sprintf("time >= $%d", n)); args = append(args, f.Since.UTC()); n++
 	}
 	if !f.Until.IsZero() {
-		where = append(where, fmt.Sprintf("time <= $%d", n))
-		args = append(args, f.Until.UTC())
-		n++
+		where = append(where, fmt.Sprintf("time <= $%d", n)); args = append(args, f.Until.UTC()); n++
 	}
 
 	if f.Limit <= 0 {

@@ -734,26 +734,32 @@ func handleThreatGraphHost(db *store.DB) http.HandlerFunc {
 			}
 		}
 
-		// Fetch all process events for this host (ILIKE partial match works for hostname)
-		f := store.EventFilter{
-			Host:      host,
-			EventType: "process",
-			Since:     since,
-			Limit:     2000,
-		}
-		events, _, err := db.QueryEvents(r.Context(), f)
+		// Fetch ALL events for this host — enrichFromRaw populates process_name even on
+		// raw/file/network events, so we use all_events for both tree and enrichment.
+		fAll := store.EventFilter{Host: host, Since: since, Limit: 5000}
+		allEvents, _, err := db.QueryEvents(r.Context(), fAll)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "query failed"})
 			return
 		}
 
-		// Also fetch ALL event types for enrichment (file, network, registry, dns)
-		fAll := store.EventFilter{Host: host, Since: since, Limit: 5000}
-		allEvents, _, _ := db.QueryEvents(r.Context(), fAll)
+		// Extract process events: prefer event_type=process, but also include any
+		// event that has a process_name — covers raw events enriched from JSON.
+		seen := map[string]bool{}
+		var processEvents []store.Event
+		for _, e := range allEvents {
+			if e.ProcessName == nil { continue }
+			key := *e.ProcessName
+			pid := 0; if e.PID != nil { pid = *e.PID }
+			k := fmt.Sprintf("%s:%d", key, pid)
+			if seen[k] { continue }
+			seen[k] = true
+			processEvents = append(processEvents, e)
+		}
 
 		writeJSON(w, 200, map[string]interface{}{
 			"host":       host,
-			"processes":  events,
+			"processes":  processEvents,
 			"all_events": allEvents,
 			"since":      since,
 		})
