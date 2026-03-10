@@ -743,19 +743,32 @@ func handleThreatGraphHost(db *store.DB) http.HandlerFunc {
 			return
 		}
 
-		// Extract process events: prefer event_type=process, but also include any
-		// event that has a process_name — covers raw events enriched from JSON.
-		seen := map[string]bool{}
-		var processEvents []store.Event
+		// Build deduplicated process list from all events.
+		// For each unique process_name:pid combo, keep the event with the richest data
+		// (prefer event_type=process, then highest severity, then most fields populated).
+		type procKey struct{ name string; pid int }
+		procMap := map[procKey]store.Event{}
 		for _, e := range allEvents {
 			if e.ProcessName == nil { continue }
-			key := *e.ProcessName
 			pid := 0; if e.PID != nil { pid = *e.PID }
-			k := fmt.Sprintf("%s:%d", key, pid)
-			if seen[k] { continue }
-			seen[k] = true
-			processEvents = append(processEvents, e)
+			k := procKey{*e.ProcessName, pid}
+			existing, exists := procMap[k]
+			if !exists {
+				procMap[k] = e
+				continue
+			}
+			// Prefer event_type=process over other types
+			if e.EventType == "process" && existing.EventType != "process" {
+				procMap[k] = e
+				continue
+			}
+			// Prefer events with command_line populated
+			if e.CommandLine != nil && existing.CommandLine == nil {
+				procMap[k] = e
+			}
 		}
+		processEvents := make([]store.Event, 0, len(procMap))
+		for _, e := range procMap { processEvents = append(processEvents, e) }
 
 		writeJSON(w, 200, map[string]interface{}{
 			"host":       host,

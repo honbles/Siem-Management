@@ -6,7 +6,9 @@ import { Monitor, ChevronRight, ChevronDown, Activity, AlertTriangle,
 import { format } from 'date-fns'
 import api from '../api/client'
 
+// Windows System: core OS processes + shells/terminals
 const WINDOWS_LEGIT = new Set([
+  // Core OS
   'svchost.exe','lsass.exe','winlogon.exe','services.exe','csrss.exe','smss.exe',
   'wininit.exe','explorer.exe','taskhostw.exe','spoolsv.exe','searchindexer.exe',
   'runtimebroker.exe','sihost.exe','fontdrvhost.exe','dwm.exe','conhost.exe',
@@ -15,20 +17,41 @@ const WINDOWS_LEGIT = new Set([
   'msmpeng.exe','nissrv.exe','securityhealthsystray.exe','sgrmbroker.exe',
   'registry','idle','system','memory compression','backgroundtaskhost.exe',
   'textinputhost.exe','lockapp.exe','lsaiso.exe','sppsvc.exe','msiexec.exe',
+  'ntoskrnl.exe','lsm.exe','taskeng.exe','taskschd.exe','schtasks.exe',
+  'sc.exe','net.exe','net1.exe','cmd.exe','wscript.exe','cscript.exe',
+  // Shells & terminals — belong in Windows group
+  'powershell.exe','powershell_ise.exe','pwsh.exe',
+  'windowsterminal.exe','wt.exe','bash.exe','wsl.exe',
 ])
+// Corporate: productivity, browsers, dev tools, comms, remote access
 const CORPORATE = new Set([
+  // Browsers
   'chrome.exe','firefox.exe','msedge.exe','iexplore.exe','opera.exe','brave.exe',
+  // Comms & collab
   'outlook.exe','teams.exe','slack.exe','zoom.exe','webex.exe','skype.exe',
+  'msteams.exe','discord.exe','thunderbird.exe',
+  // Dev tools
   'code.exe','devenv.exe','rider64.exe','git.exe','node.exe','python.exe',
-  'python3.exe','java.exe','javaw.exe','dotnet.exe','onedrive.exe','dropbox.exe',
-  'notepad.exe','notepad++.exe','winword.exe','excel.exe','powerpnt.exe',
+  'python3.exe','java.exe','javaw.exe','dotnet.exe','notepad++.exe',
+  // Office
+  'winword.exe','excel.exe','powerpnt.exe','onenote.exe','msaccess.exe',
+  'visio.exe','publisher.exe','acrobat.exe','acrord32.exe',
+  // Cloud & file sync
+  'onedrive.exe','dropbox.exe','googledrivesync.exe',
+  // Remote & VPN
   'anydesk.exe','mstsc.exe','putty.exe','winscp.exe','filezilla.exe',
-  'fortisslvpndaemon.exe','globalprotect.exe','vpnui.exe',
-  'powershell.exe','powershell_ise.exe','windowsterminal.exe','cmd.exe',
-  'bash.exe','wsl.exe','pwsh.exe','vmware.exe','virtualboxvm.exe',
-  'wireshark.exe','burpsuite.exe','wt.exe',
+  'fortisslvpndaemon.exe','globalprotect.exe','vpnui.exe','openvpn.exe',
+  // VM & security tools
+  'vmware.exe','virtualboxvm.exe','wireshark.exe','burpsuite.exe',
+  'procexp.exe','procmon.exe','autoruns.exe','tcpview.exe',
+  // Notepad & basic
+  'notepad.exe','wordpad.exe','mspaint.exe','calc.exe','snippingtool.exe',
 ])
-const BROWSERS = new Set(['chrome.exe','msedge.exe','firefox.exe','iexplore.exe','opera.exe','brave.exe'])
+const BROWSERS = new Set([
+  'chrome.exe','msedge.exe','firefox.exe','iexplore.exe','opera.exe','brave.exe',
+  // bare names (no .exe)
+  'chrome','msedge','firefox','iexplore','opera','brave',
+])
 
 function classify(name) {
   if (!name) return 'other'

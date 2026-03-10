@@ -344,16 +344,17 @@ func enrichFromRaw(e *Event) {
 	setStr(&e.RegValue, r.Details)
 
 	if d := r.EventData; d != nil {
-		setStr(&e.ProcessName, lastName(firstOfMap(d, "NewProcessName", "ProcessName", "Application")))
-		setStr(&e.ImagePath, firstOfMap(d, "NewProcessName", "ProcessName", "Application"))
+		// "Image" is the Sysmon key for the full executable path
+		setStr(&e.ProcessName, lastName(firstOfMap(d, "Image", "NewProcessName", "ProcessName", "Application", "ParentImage")))
+		setStr(&e.ImagePath, firstOfMap(d, "Image", "NewProcessName", "ProcessName", "Application"))
 		setStr(&e.CommandLine, firstOfMap(d, "CommandLine"))
-		setStr(&e.UserName, firstOfMap(d, "SubjectUserName", "TargetUserName", "UserName", "User"))
+		setStr(&e.UserName, firstOfMap(d, "User", "SubjectUserName", "TargetUserName", "UserName"))
 		setStr(&e.Domain, firstOfMap(d, "SubjectDomainName", "TargetDomainName", "Domain"))
-		setStr(&e.FilePath, firstOfMap(d, "ObjectName", "FileName", "FilePath", "TargetFilename"))
-		setStr(&e.RegKey, firstOfMap(d, "ObjectName", "TargetObject", "KeyPath"))
-		setStr(&e.RegValue, firstOfMap(d, "NewValue", "OldValue", "Details", "ValueName"))
-		setStr(&e.SrcIP, firstOfMap(d, "IpAddress", "SourceAddress", "WorkstationName"))
-		setStr(&e.DstIP, firstOfMap(d, "DestAddress", "DestinationIp", "TargetServerName"))
+		setStr(&e.FilePath, firstOfMap(d, "TargetFilename", "ObjectName", "FileName", "FilePath"))
+		setStr(&e.RegKey, firstOfMap(d, "TargetObject", "ObjectName", "KeyPath"))
+		setStr(&e.RegValue, firstOfMap(d, "Details", "NewValue", "OldValue", "ValueName"))
+		setStr(&e.SrcIP, firstOfMap(d, "SourceIp", "IpAddress", "SourceAddress", "WorkstationName"))
+		setStr(&e.DstIP, firstOfMap(d, "DestinationIp", "DestAddress", "TargetServerName", "QueryName"))
 		setStr(&e.LogonID, firstOfMap(d, "SubjectLogonId", "TargetLogonId"))
 		if v := firstOfMap(d, "SourcePort"); v != "" {
 			if p, err := strconv.Atoi(v); err == nil {
