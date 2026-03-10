@@ -115,9 +115,10 @@ function ProcessNode({proc, depth=0, allEvents, onSelect, selected}) {
   const fileN = rel.filter(e=>e.event_type==='file').length
   const regN  = rel.filter(e=>e.event_type==='registry').length
   const isBrowser = BROWSERS.has(proc.name?.toLowerCase())
-  const webDoms = isBrowser
-    ? [...new Set(rel.filter(e=>e.event_type==='dns'&&isWebDomain(e.dst_ip)).map(e=>e.dst_ip))].slice(0,2)
-    : []
+  // DNS events have no process_name — match by pid if available, else show all for browsers
+  const allDns = allEvents.filter(e=>e.event_type==='dns'&&e.dst_ip&&isWebDomain(e.dst_ip))
+  const procDns = proc.pid ? allDns.filter(e=>e.pid===proc.pid) : isBrowser ? allDns : []
+  const webDoms = [...new Set(procDns.map(e=>e.dst_ip))].slice(0,3)
 
   return (
     <div style={{marginLeft:depth>0?18:0}} className="relative">
@@ -143,7 +144,13 @@ function ProcessNode({proc, depth=0, allEvents, onSelect, selected}) {
             {proc.user&&!proc.user.includes('$')&&<span className="text-[9px] text-siem-muted/40">{proc.user.split('\\').pop()}</span>}
             {proc.maxSeverity>=4&&<span className={`text-[8px] px-1 py-px rounded border ${sev.border} ${sev.text} font-bold`}>{sev.label}</span>}
           </div>
-          {proc.commandLine&&<div className="text-[9px] text-siem-muted/60 font-mono mt-0.5 truncate" title={proc.commandLine}>{proc.commandLine}</div>}
+          {proc.allCommands?.length>0&&(
+            <div className="text-[9px] text-siem-muted/60 font-mono mt-0.5 truncate"
+              title={proc.allCommands.join('\n')}>
+              {proc.allCommands[0]}
+              {proc.allCommands.length>1&&<span className="text-siem-muted/30 ml-1">+{proc.allCommands.length-1} cmds</span>}
+            </div>
+          )}
           {(netN>0||fileN>0||regN>0||webDoms.length>0)&&(
             <div className="flex gap-2 mt-0.5">
               {netN>0&&<span className="flex items-center gap-0.5 text-[8px] text-blue-400/60"><Wifi size={7}/>{netN}</span>}
@@ -167,11 +174,12 @@ function ProcessDetail({proc, allEvents, onClose}) {
   if (!proc) return null
   const rel = allEvents.filter(e=>(proc.pid&&e.pid===proc.pid)||e.process_name===proc.name)
   const net  = rel.filter(e=>e.event_type==='network')
-  const dns  = rel.filter(e=>e.event_type==='dns')
   const file = rel.filter(e=>e.event_type==='file')
   const reg  = rel.filter(e=>e.event_type==='registry')
   const sev  = SEV[proc.maxSeverity]||SEV[1]
   const isBrowser = BROWSERS.has(proc.name?.toLowerCase())
+  const allDnsEvents = allEvents.filter(e=>e.event_type==='dns'&&e.dst_ip)
+  const dns = proc.pid ? allDnsEvents.filter(e=>e.pid===proc.pid) : isBrowser ? allDnsEvents : []
   const webVisits = [...new Set(dns.filter(e=>isWebDomain(e.dst_ip)).map(e=>e.dst_ip))]
   const extIPs = [...new Map(net.filter(e=>e.dst_ip&&!e.dst_ip.startsWith('192.168')&&!e.dst_ip.startsWith('10.')).map(e=>[`${e.dst_ip}:${e.dst_port}`,e])).values()]
   const files = [...new Set(file.map(e=>e.file_path).filter(Boolean))]
@@ -226,10 +234,18 @@ function ProcessDetail({proc, allEvents, onClose}) {
       <div className="flex-1 overflow-y-auto">
         {tab==='overview'&&(
           <div className="p-3 space-y-3">
-            {proc.commandLine&&(
+            {proc.allCommands?.length>0&&(
               <div>
-                <div className="text-[8px] uppercase tracking-wider text-siem-muted font-semibold mb-1 flex items-center gap-1"><Hash size={7}/>Command Line</div>
-                <div className="bg-siem-bg border border-siem-border/50 rounded p-2 text-[10px] font-mono text-emerald-300 break-all leading-relaxed">{proc.commandLine}</div>
+                <div className="text-[8px] uppercase tracking-wider text-siem-muted font-semibold mb-1 flex items-center gap-1">
+                  <Hash size={7}/>Commands Run ({proc.allCommands.length})
+                </div>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {proc.allCommands.map((cmd,i)=>(
+                    <div key={i} className="bg-siem-bg border border-siem-border/50 rounded px-2 py-1.5 text-[9px] font-mono text-emerald-300 break-all leading-relaxed">
+                      {cmd}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div>
@@ -431,15 +447,27 @@ function HostCard({agent, onClick, selected}) {
 
 function buildTree(events) {
   const map = {}
-  // Use any event that has a process_name — event_type may be 'raw', 'file', etc.
-  // after enrichFromRaw populates process_name from the JSON blob.
+  // Group by process name only — pid changes per execution, we want one node per process.
   events.filter(e=>e.process_name).forEach(e=>{
-    const key=`${e.process_name}:${e.pid||0}`
-    if (!map[key]) map[key]={name:e.process_name,pid:e.pid||0,ppid:e.ppid||0,commandLine:e.command_line||'',user:e.user_name||'',maxSeverity:e.severity||1,events:0,children:[],_key:key}
+    const key = e.process_name.toLowerCase()
+    if (!map[key]) map[key]={
+      name:e.process_name, pid:e.pid||0, ppid:e.ppid||0,
+      commandLine:e.command_line||'', user:e.user_name||'',
+      maxSeverity:e.severity||1, events:0, children:[], _key:key,
+      commands: new Set(), // unique commands run
+    }
     const p=map[key]; p.events++
-    if((e.severity||1)>p.maxSeverity)p.maxSeverity=e.severity
-    if(!p.commandLine&&e.command_line)p.commandLine=e.command_line
-    if(!p.user&&e.user_name)p.user=e.user_name
+    if((e.severity||1)>p.maxSeverity) p.maxSeverity=e.severity
+    if(e.command_line && e.command_line.trim()) p.commands.add(e.command_line.trim())
+    if(!p.user&&e.user_name) p.user=e.user_name
+    if(!p.pid&&e.pid) p.pid=e.pid
+    if(!p.ppid&&e.ppid) p.ppid=e.ppid
+  })
+  // Convert commands Set to sorted array, pick first as display commandLine
+  Object.values(map).forEach(p=>{
+    p.allCommands = [...p.commands].sort()
+    p.commandLine = p.allCommands[0]||''
+    delete p.commands
   })
   const roots=[], byPid={}
   Object.values(map).forEach(p=>{if(p.pid)byPid[p.pid]=p})
