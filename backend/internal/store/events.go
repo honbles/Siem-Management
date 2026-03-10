@@ -72,55 +72,89 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 	where, args, n := []string{"1=1"}, []interface{}{}, 1
 
 	if f.AgentID != "" {
-		where = append(where, fmt.Sprintf("agent_id = $%d", n)); args = append(args, f.AgentID); n++
+		where = append(where, fmt.Sprintf("agent_id = $%d", n))
+		args = append(args, f.AgentID)
+		n++
 	}
 	if f.Host != "" {
-		where = append(where, fmt.Sprintf("host ILIKE $%d", n)); args = append(args, "%"+f.Host+"%"); n++
+		where = append(where, fmt.Sprintf("host ILIKE $%d", n))
+		args = append(args, "%"+f.Host+"%")
+		n++
 	}
 	if f.EventType != "" {
-		where = append(where, fmt.Sprintf("event_type = $%d", n)); args = append(args, f.EventType); n++
+		where = append(where, fmt.Sprintf("event_type = $%d", n))
+		args = append(args, f.EventType)
+		n++
 	}
 	if f.Severity > 0 {
-		where = append(where, fmt.Sprintf("severity >= $%d", n)); args = append(args, f.Severity); n++
+		where = append(where, fmt.Sprintf("severity >= $%d", n))
+		args = append(args, f.Severity)
+		n++
 	}
 	if f.SrcIP != "" {
-		where = append(where, fmt.Sprintf("src_ip = $%d", n)); args = append(args, f.SrcIP); n++
+		where = append(where, fmt.Sprintf("src_ip = $%d", n))
+		args = append(args, f.SrcIP)
+		n++
 	}
 	if f.DstIP != "" {
-		where = append(where, fmt.Sprintf("dst_ip = $%d", n)); args = append(args, f.DstIP); n++
+		where = append(where, fmt.Sprintf("dst_ip = $%d", n))
+		args = append(args, f.DstIP)
+		n++
 	}
 	if f.DstPort > 0 {
-		where = append(where, fmt.Sprintf("dst_port = $%d", n)); args = append(args, f.DstPort); n++
+		where = append(where, fmt.Sprintf("dst_port = $%d", n))
+		args = append(args, f.DstPort)
+		n++
 	}
 	if f.SrcPort > 0 {
-		where = append(where, fmt.Sprintf("src_port = $%d", n)); args = append(args, f.SrcPort); n++
+		where = append(where, fmt.Sprintf("src_port = $%d", n))
+		args = append(args, f.SrcPort)
+		n++
 	}
 	if f.Proto != "" {
-		where = append(where, fmt.Sprintf("proto ILIKE $%d", n)); args = append(args, f.Proto); n++
+		where = append(where, fmt.Sprintf("proto ILIKE $%d", n))
+		args = append(args, f.Proto)
+		n++
 	}
 	if f.UserName != "" {
-		where = append(where, fmt.Sprintf("user_name ILIKE $%d", n)); args = append(args, "%"+f.UserName+"%"); n++
+		where = append(where, fmt.Sprintf("user_name ILIKE $%d", n))
+		args = append(args, "%"+f.UserName+"%")
+		n++
 	}
 	if f.ProcessName != "" {
-		where = append(where, fmt.Sprintf("process_name ILIKE $%d", n)); args = append(args, "%"+f.ProcessName+"%"); n++
+		where = append(where, fmt.Sprintf("process_name ILIKE $%d", n))
+		args = append(args, "%"+f.ProcessName+"%")
+		n++
 	}
 	if f.CommandLine != "" {
-		where = append(where, fmt.Sprintf("command_line ILIKE $%d", n)); args = append(args, "%"+f.CommandLine+"%"); n++
+		where = append(where, fmt.Sprintf("command_line ILIKE $%d", n))
+		args = append(args, "%"+f.CommandLine+"%")
+		n++
 	}
 	if f.ImagePath != "" {
-		where = append(where, fmt.Sprintf("image_path ILIKE $%d", n)); args = append(args, "%"+f.ImagePath+"%"); n++
+		where = append(where, fmt.Sprintf("image_path ILIKE $%d", n))
+		args = append(args, "%"+f.ImagePath+"%")
+		n++
 	}
 	if f.FilePath != "" {
-		where = append(where, fmt.Sprintf("file_path ILIKE $%d", n)); args = append(args, "%"+f.FilePath+"%"); n++
+		where = append(where, fmt.Sprintf("file_path ILIKE $%d", n))
+		args = append(args, "%"+f.FilePath+"%")
+		n++
 	}
 	if f.RegKey != "" {
-		where = append(where, fmt.Sprintf("reg_key ILIKE $%d", n)); args = append(args, "%"+f.RegKey+"%"); n++
+		where = append(where, fmt.Sprintf("reg_key ILIKE $%d", n))
+		args = append(args, "%"+f.RegKey+"%")
+		n++
 	}
 	if f.Channel != "" {
-		where = append(where, fmt.Sprintf("channel ILIKE $%d", n)); args = append(args, "%"+f.Channel+"%"); n++
+		where = append(where, fmt.Sprintf("channel ILIKE $%d", n))
+		args = append(args, "%"+f.Channel+"%")
+		n++
 	}
 	if f.EventID > 0 {
-		where = append(where, fmt.Sprintf("event_id = $%d", n)); args = append(args, f.EventID); n++
+		where = append(where, fmt.Sprintf("event_id = $%d", n))
+		args = append(args, f.EventID)
+		n++
 	}
 	if f.Search != "" {
 		v := "%" + f.Search + "%"
@@ -135,10 +169,14 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 		n += 10
 	}
 	if !f.Since.IsZero() {
-		where = append(where, fmt.Sprintf("time >= $%d", n)); args = append(args, f.Since.UTC()); n++
+		where = append(where, fmt.Sprintf("time >= $%d", n))
+		args = append(args, f.Since.UTC())
+		n++
 	}
 	if !f.Until.IsZero() {
-		where = append(where, fmt.Sprintf("time <= $%d", n)); args = append(args, f.Until.UTC()); n++
+		where = append(where, fmt.Sprintf("time <= $%d", n))
+		args = append(args, f.Until.UTC())
+		n++
 	}
 
 	if f.Limit <= 0 {
@@ -296,101 +334,99 @@ func enrichFromRaw(e *Event) {
 		return
 	}
 	var r struct {
-		// Top-level fields (Sysmon JSON format)
-		Image       string `json:"Image"`
-		CommandLine string `json:"CommandLine"`
-		User        string `json:"User"`
-		ProcessID   int    `json:"ProcessId"`
-		ParentImage string `json:"ParentImage"`
-		TargetFilename string `json:"TargetFilename"`
-		QueryName   string `json:"query_name"`
-		QueryType   string `json:"query_type"`
-		DestIP      string `json:"DestinationIp"`
-		DestPort    int    `json:"DestinationPort"`
-		SrcIP       string `json:"SourceIp"`
-		SrcPort     int    `json:"SourcePort"`
-		Protocol    string `json:"Protocol"`
-		TargetObject string `json:"TargetObject"`
-		Details     string `json:"Details"`
-		// Nested event_data (Windows EventLog format)
-		EventData map[string]string `json:"event_data"`
+		Image          string            `json:"Image"`
+		CommandLine    string            `json:"CommandLine"`
+		User           string            `json:"User"`
+		ProcessID      int               `json:"ProcessId"`
+		TargetFilename string            `json:"TargetFilename"`
+		QueryName      string            `json:"query_name"`
+		DestIP         string            `json:"DestinationIp"`
+		DestPort       int               `json:"DestinationPort"`
+		SrcIP          string            `json:"SourceIp"`
+		SrcPort        int               `json:"SourcePort"`
+		Protocol       string            `json:"Protocol"`
+		TargetObject   string            `json:"TargetObject"`
+		Details        string            `json:"Details"`
+		EventData      map[string]string `json:"event_data"`
 	}
 	if err := json.Unmarshal(e.Raw, &r); err != nil {
 		return
 	}
 
-	// Helper: set *string only if currently nil
 	setStr := func(field **string, val string) {
 		if *field == nil && val != "" {
 			v := val
 			*field = &v
 		}
 	}
-	setInt := func(field *int, val int) {
-		if *field == 0 && val != 0 {
-			*field = val
+	setPtrInt := func(field **int, val int) {
+		if *field == nil && val != 0 {
+			v := val
+			*field = &v
 		}
 	}
 
-	// Sysmon / direct JSON fields
 	setStr(&e.ProcessName, lastName(r.Image))
-	setStr(&e.ImagePath,   r.Image)
+	setStr(&e.ImagePath, r.Image)
 	setStr(&e.CommandLine, r.CommandLine)
-	setStr(&e.UserName,    lastName(r.User))
-	setStr(&e.FilePath,    r.TargetFilename)
-	setStr(&e.DstIP,       r.DestIP)
-	setStr(&e.SrcIP,       r.SrcIP)
-	setStr(&e.Proto,       r.Protocol)
-	setInt(&e.PID,         r.ProcessID)
-	setInt(&e.DstPort,     r.DestPort)
-	setInt(&e.SrcPort,     r.SrcPort)
-	// DNS: query_name goes into DstIP (convention used by agent)
+	setStr(&e.UserName, lastName(r.User))
+	setStr(&e.FilePath, r.TargetFilename)
 	setStr(&e.DstIP, r.QueryName)
-	// Registry
-	setStr(&e.RegKey,   r.TargetObject)
+	setStr(&e.DstIP, r.DestIP)
+	setStr(&e.SrcIP, r.SrcIP)
+	setStr(&e.Proto, r.Protocol)
+	setPtrInt(&e.PID, r.ProcessID)
+	setPtrInt(&e.DstPort, r.DestPort)
+	setPtrInt(&e.SrcPort, r.SrcPort)
+	setStr(&e.RegKey, r.TargetObject)
 	setStr(&e.RegValue, r.Details)
 
-	// Windows EventLog event_data map
 	if d := r.EventData; d != nil {
-		setStr(&e.ProcessName, lastName(firstOfMap(d, "NewProcessName","ProcessName","Application")))
-		setStr(&e.ImagePath,   firstOfMap(d, "NewProcessName","ProcessName","Application"))
+		setStr(&e.ProcessName, lastName(firstOfMap(d, "NewProcessName", "ProcessName", "Application")))
+		setStr(&e.ImagePath, firstOfMap(d, "NewProcessName", "ProcessName", "Application"))
 		setStr(&e.CommandLine, firstOfMap(d, "CommandLine"))
-		setStr(&e.UserName,    firstOfMap(d, "SubjectUserName","TargetUserName","UserName","User"))
-		setStr(&e.Domain,      firstOfMap(d, "SubjectDomainName","TargetDomainName","Domain"))
-		setStr(&e.FilePath,    firstOfMap(d, "ObjectName","FileName","FilePath","TargetFilename"))
-		setStr(&e.RegKey,      firstOfMap(d, "ObjectName","TargetObject","KeyPath"))
-		setStr(&e.RegValue,    firstOfMap(d, "NewValue","OldValue","Details","ValueName"))
-		setStr(&e.SrcIP,       firstOfMap(d, "IpAddress","SourceAddress","WorkstationName"))
-		setStr(&e.DstIP,       firstOfMap(d, "DestAddress","DestinationIp","TargetServerName"))
-		if v := firstOfMap(d, "SubjectLogonId","TargetLogonId"); v != "" {
-			setStr(&e.LogonID, v)
-		}
+		setStr(&e.UserName, firstOfMap(d, "SubjectUserName", "TargetUserName", "UserName", "User"))
+		setStr(&e.Domain, firstOfMap(d, "SubjectDomainName", "TargetDomainName", "Domain"))
+		setStr(&e.FilePath, firstOfMap(d, "ObjectName", "FileName", "FilePath", "TargetFilename"))
+		setStr(&e.RegKey, firstOfMap(d, "ObjectName", "TargetObject", "KeyPath"))
+		setStr(&e.RegValue, firstOfMap(d, "NewValue", "OldValue", "Details", "ValueName"))
+		setStr(&e.SrcIP, firstOfMap(d, "IpAddress", "SourceAddress", "WorkstationName"))
+		setStr(&e.DstIP, firstOfMap(d, "DestAddress", "DestinationIp", "TargetServerName"))
+		setStr(&e.LogonID, firstOfMap(d, "SubjectLogonId", "TargetLogonId"))
 		if v := firstOfMap(d, "SourcePort"); v != "" {
-			if p, err := strconv.Atoi(v); err == nil { setInt(&e.SrcPort, p) }
+			if p, err := strconv.Atoi(v); err == nil {
+				setPtrInt(&e.SrcPort, p)
+			}
 		}
 		if v := firstOfMap(d, "DestPort"); v != "" {
-			if p, err := strconv.Atoi(v); err == nil { setInt(&e.DstPort, p) }
+			if p, err := strconv.Atoi(v); err == nil {
+				setPtrInt(&e.DstPort, p)
+			}
 		}
-		if v := firstOfMap(d, "NewProcessId","ProcessId","ProcessID"); v != "" {
-			if pid, err := strconv.ParseInt(strings.TrimPrefix(v, "0x"), 16, 64); err == nil {
-				setInt(&e.PID, int(pid))
+		if v := firstOfMap(d, "NewProcessId", "ProcessId", "ProcessID"); v != "" {
+			v = strings.TrimPrefix(v, "0x")
+			if pid, err := strconv.ParseInt(v, 16, 64); err == nil {
+				setPtrInt(&e.PID, int(pid))
 			} else if pid, err := strconv.Atoi(v); err == nil {
-				setInt(&e.PID, pid)
+				setPtrInt(&e.PID, pid)
 			}
 		}
 	}
 }
 
-// lastName returns the final component of a backslash-separated path (e.g. process name from full path).
 func lastName(s string) string {
-	if s == "" { return "" }
-	parts := strings.Split(strings.ReplaceAll(s, "\\", "\"), "\")
+	if s == "" {
+		return ""
+	}
+	parts := strings.Split(s, "\\")
 	return parts[len(parts)-1]
 }
 
 func firstOfMap(m map[string]string, keys ...string) string {
 	for _, k := range keys {
-		if v := m[k]; v != "" { return v }
+		if v := m[k]; v != "" {
+			return v
+		}
 	}
 	return ""
 }
