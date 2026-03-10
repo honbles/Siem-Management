@@ -433,6 +433,9 @@ func NewDetectionEngine(db *store.DB, mailer *notify.Mailer, logger *slog.Logger
 }
 
 func (e *DetectionEngine) Run(ctx context.Context) {
+	// Catch-up: scan last 24h on first start
+	e.evaluateSince(ctx, time.Now().Add(-24*time.Hour))
+
 	ticker := time.NewTicker(45 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -444,8 +447,11 @@ func (e *DetectionEngine) Run(ctx context.Context) {
 }
 
 func (e *DetectionEngine) evaluate(ctx context.Context) {
-	since := time.Now().Add(-2 * time.Minute)
-	events, _, err := e.db.QueryEvents(ctx, store.EventFilter{Since: since, Limit: 1000})
+	e.evaluateSince(ctx, time.Now().Add(-2*time.Minute))
+}
+
+func (e *DetectionEngine) evaluateSince(ctx context.Context, since time.Time) {
+	events, _, err := e.db.QueryEvents(ctx, store.EventFilter{Since: since, Limit: 5000})
 	if err != nil {
 		e.logger.Warn("detection: query failed", "err", err)
 		return

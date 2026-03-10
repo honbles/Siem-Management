@@ -22,6 +22,9 @@ func NewAlertEngine(db *store.DB, mailer *notify.Mailer, logger *slog.Logger) *A
 }
 
 func (e *AlertEngine) Run(ctx context.Context) {
+	// Catch-up: scan last 24h on first start so historical events get evaluated
+	e.evaluateSince(ctx, time.Now().Add(-24*time.Hour))
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -35,14 +38,17 @@ func (e *AlertEngine) Run(ctx context.Context) {
 }
 
 func (e *AlertEngine) evaluate(ctx context.Context) {
+	e.evaluateSince(ctx, time.Now().Add(-90*time.Second))
+}
+
+func (e *AlertEngine) evaluateSince(ctx context.Context, since time.Time) {
 	rules, err := e.db.GetEnabledRules(ctx)
 	if err != nil {
 		e.logger.Warn("alert engine: failed to load rules", "err", err)
 		return
 	}
 
-	since := time.Now().Add(-1 * time.Minute)
-	f := store.EventFilter{Since: since, Limit: 500}
+	f := store.EventFilter{Since: since, Limit: 2000}
 	events, _, err := e.db.QueryEvents(ctx, f)
 	if err != nil {
 		e.logger.Warn("alert engine: failed to query events", "err", err)

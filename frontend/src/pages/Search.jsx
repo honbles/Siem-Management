@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Search as SearchIcon, Play, BookOpen, X, ChevronRight, ExternalLink } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import api from '../api/client'
@@ -167,8 +167,9 @@ function EventPanel({ eventId, onClose }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useState(() => {
+  useEffect(() => {
     setLoading(true)
+    setData(null)
     api.get(`/api/v1/events/${eventId}`)
       .then(r => setData(r.data))
       .catch(() => setData(null))
@@ -204,6 +205,8 @@ function EventPanel({ eventId, onClose }) {
     ['File Hash',     ev.file_hash],
     ['Registry Key',  ev.reg_key],
     ['Registry Value',ev.reg_value],
+    ['Registry Data', ev.reg_data],
+    ['Logon ID',      ev.logon_id],
   ].filter(([, v]) => v !== null && v !== undefined && v !== '') : []
 
   return (
@@ -284,17 +287,35 @@ function EventPanel({ eventId, onClose }) {
 
 // ── Result Row ────────────────────────────────────────────────────────────────
 function ResultRow({ ev, onClick }) {
-  // For DNS events: domain is in dst_ip (new) or need to parse raw (old)
-  let domain = ev.dst_ip || ''
-  if (!domain && ev.raw) {
-    try {
-      const r = typeof ev.raw === 'string' ? JSON.parse(ev.raw) : ev.raw
-      domain = r.query_name || r.dst_ip || ''
-    } catch {}
+  // Smart subject/detail per event type
+  let subject, detail
+  const t = ev.event_type
+  if (t === 'process' || t === 'sysmon') {
+    subject = ev.process_name || ev.image_path || '—'
+    detail  = ev.command_line || ev.image_path || '—'
+  } else if (t === 'network') {
+    subject = (ev.dst_ip ? `${ev.dst_ip}` : ev.src_ip) || '—'
+    detail  = ev.dst_port ? `→ port ${ev.dst_port}${ev.proto ? ' '+ev.proto.toUpperCase() : ''}` : (ev.src_ip || '—')
+  } else if (t === 'dns') {
+    let domain = ev.dst_ip || ''
+    if (!domain && ev.raw) {
+      try { const r = typeof ev.raw === 'string' ? JSON.parse(ev.raw) : ev.raw; domain = r.query_name || r.QueryName || r.dst_ip || '' } catch {}
+    }
+    subject = domain || '—'
+    detail  = ev.src_ip ? `from ${ev.src_ip}` : (ev.process_name || '—')
+  } else if (t === 'logon') {
+    subject = ev.user_name ? `${ev.domain ? ev.domain+'\\\\' : ''}${ev.user_name}` : '—'
+    detail  = ev.event_id ? `EventID ${ev.event_id}` : (ev.src_ip ? `from ${ev.src_ip}` : '—')
+  } else if (t === 'registry') {
+    subject = ev.reg_key || '—'
+    detail  = ev.reg_value || ev.reg_data || '—'
+  } else if (t === 'file') {
+    subject = ev.file_path || '—'
+    detail  = ev.file_hash ? `SHA256: ${ev.file_hash.slice(0,16)}…` : (ev.process_name || '—')
+  } else {
+    subject = ev.process_name || ev.reg_key || ev.file_path || ev.dst_ip || ev.src_ip || '—'
+    detail  = ev.command_line || ev.reg_value || ev.dst_ip || ev.file_path || '—'
   }
-
-  const subject = ev.process_name || ev.reg_key || ev.file_path || domain || ev.src_ip || '—'
-  const detail  = ev.command_line || domain || ev.reg_value || ev.dst_ip || ev.file_path || '—'
 
   return (
     <tr className="border-b border-siem-border/20 hover:bg-white/[0.03] transition-colors cursor-pointer group"
@@ -309,7 +330,9 @@ function ResultRow({ ev, onClick }) {
       <td className="px-3 py-2.5">
         <span className={`text-xs font-medium ${TYPE_COLOR[ev.event_type] || 'text-siem-muted'}`}>{ev.event_type}</span>
       </td>
-      <td className="px-3 py-2.5 text-siem-muted text-xs">{ev.user_name || '—'}</td>
+      <td className="px-3 py-2.5 text-siem-muted text-xs truncate max-w-[120px]" title={ev.user_name}>
+        {ev.user_name ? (ev.domain ? `${ev.domain}\\${ev.user_name}` : ev.user_name) : '—'}
+      </td>
       <td className="px-3 py-2.5 text-siem-muted text-xs max-w-[160px] truncate" title={subject}>{subject}</td>
       <td className="px-3 py-2.5 text-siem-muted text-xs max-w-[260px] truncate font-mono text-[11px]" title={detail}>{detail}</td>
       <td className="px-3 py-2.5 text-siem-muted group-hover:text-siem-accent transition-colors">
@@ -332,16 +355,17 @@ export default function Search() {
   const [selectedEvent, setSelectedEvent] = useState(null)
   const inputRef = useRef(null)
 
-  const runQuery = useCallback(async (p) => {
+  const runQuery = useCallback(async (p, allTime = false) => {
     const cleaned = Object.fromEntries(Object.entries({ ...p, limit: 200 }).filter(([, v]) => v !== '' && v !== undefined))
+    if (allTime) cleaned.all_time = '1'
     setLoading(true)
     setRan(true)
     try {
       const { data } = await api.get('/api/v1/events', { params: cleaned })
       let events = data.events || []
       // If dns query returns nothing, auto-fallback to searching source=DNS-Client
-      if (events.length === 0 && cleaned.event_type === 'dns') {
-        const fallback = { ...cleaned }
+      if (events.length === 0 && cleaned.event_type === 'dns' && !allTime) {
+        const fallback = { ...cleaned, all_time: '1' }
         delete fallback.event_type
         fallback.search = fallback.search ? fallback.search + ' DNS-Client' : 'DNS-Client'
         const r2 = await api.get('/api/v1/events', { params: fallback })
@@ -512,7 +536,7 @@ export default function Search() {
                 )}
                 {activeLabel && <span className="text-siem-accent/70 truncate max-w-xs ml-1">"{activeLabel}"</span>}
                 {results.length === 0 && (
-                  <button onClick={() => { const p = { ...chips }; delete p.since; delete p.until; setChips(p); runQuery(p) }}
+                  <button onClick={() => runQuery(chips, true)}
                     className="ml-auto text-siem-accent border border-siem-accent/30 rounded px-2 py-0.5 hover:bg-siem-accent/10">
                     Search all time →
                   </button>
@@ -527,9 +551,9 @@ export default function Search() {
                       <th className="text-left px-3 py-2.5 font-medium">Sev</th>
                       <th className="text-left px-3 py-2.5 font-medium">Host</th>
                       <th className="text-left px-3 py-2.5 font-medium">Type</th>
-                      <th className="text-left px-3 py-2.5 font-medium">User</th>
-                      <th className="text-left px-3 py-2.5 font-medium">Process / Domain / Key</th>
-                      <th className="text-left px-3 py-2.5 font-medium">Command / URL / Value</th>
+                      <th className="text-left px-3 py-2.5 font-medium">User / Domain</th>
+                      <th className="text-left px-3 py-2.5 font-medium">Process / Domain / Key / Path</th>
+                      <th className="text-left px-3 py-2.5 font-medium">Command / URL / Value / Port</th>
                       <th className="px-3 py-2.5"></th>
                     </tr>
                   </thead>

@@ -33,6 +33,7 @@ type Event struct {
 	Proto       *string         `json:"proto,omitempty"`
 	RegKey      *string         `json:"reg_key,omitempty"`
 	RegValue    *string         `json:"reg_value,omitempty"`
+	RegData     *string         `json:"reg_data,omitempty"`
 	FilePath    *string         `json:"file_path,omitempty"`
 	FileHash    *string         `json:"file_hash,omitempty"`
 	EventID     *uint32         `json:"event_id,omitempty"`
@@ -154,7 +155,7 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 		SELECT id, time, agent_id, host, os, event_type, severity, source,
 		       pid, ppid, process_name, command_line, image_path, user_name, domain, logon_id,
 		       src_ip, src_port, dst_ip, dst_port, proto,
-		       reg_key, reg_value, file_path, file_hash,
+		       reg_key, reg_value, reg_data, file_path, file_hash,
 		       event_id, channel, record_id
 		FROM events WHERE %s
 		ORDER BY time DESC
@@ -173,7 +174,7 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 			&e.ID, &e.Time, &e.AgentID, &e.Host, &e.OS, &e.EventType, &e.Severity, &e.Source,
 			&e.PID, &e.PPID, &e.ProcessName, &e.CommandLine, &e.ImagePath, &e.UserName, &e.Domain, &e.LogonID,
 			&e.SrcIP, &e.SrcPort, &e.DstIP, &e.DstPort, &e.Proto,
-			&e.RegKey, &e.RegValue, &e.FilePath, &e.FileHash,
+			&e.RegKey, &e.RegValue, &e.RegData, &e.FilePath, &e.FileHash,
 			&e.EventID, &e.Channel, &e.RecordID,
 		); err != nil {
 			return nil, 0, err
@@ -188,7 +189,7 @@ func (db *DB) LatestEvents(ctx context.Context, since time.Time, limit int) ([]E
 		SELECT id, time, agent_id, host, os, event_type, severity, source,
 		       pid, ppid, process_name, command_line, image_path, user_name, domain, logon_id,
 		       src_ip, src_port, dst_ip, dst_port, proto,
-		       reg_key, reg_value, file_path, file_hash,
+		       reg_key, reg_value, reg_data, file_path, file_hash,
 		       event_id, channel, record_id
 		FROM events WHERE time > $1 ORDER BY time DESC LIMIT $2
 	`, since.UTC(), limit)
@@ -204,7 +205,7 @@ func (db *DB) GetEventByID(ctx context.Context, id string) (*Event, error) {
 		SELECT id, time, agent_id, host, os, event_type, severity, source, raw,
 		       pid, ppid, process_name, command_line, image_path, user_name, domain, logon_id,
 		       src_ip, src_port, dst_ip, dst_port, proto,
-		       reg_key, reg_value, file_path, file_hash,
+		       reg_key, reg_value, reg_data, file_path, file_hash,
 		       event_id, channel, record_id
 		FROM events WHERE id = $1
 	`, id)
@@ -218,7 +219,7 @@ func (db *DB) GetEventByID(ctx context.Context, id string) (*Event, error) {
 			&e.ID, &e.Time, &e.AgentID, &e.Host, &e.OS, &e.EventType, &e.Severity, &e.Source, &e.Raw,
 			&e.PID, &e.PPID, &e.ProcessName, &e.CommandLine, &e.ImagePath, &e.UserName, &e.Domain, &e.LogonID,
 			&e.SrcIP, &e.SrcPort, &e.DstIP, &e.DstPort, &e.Proto,
-			&e.RegKey, &e.RegValue, &e.FilePath, &e.FileHash,
+			&e.RegKey, &e.RegValue, &e.RegData, &e.FilePath, &e.FileHash,
 			&e.EventID, &e.Channel, &e.RecordID,
 		); err != nil {
 			return nil, err
@@ -233,7 +234,7 @@ func (db *DB) RelatedEvents(ctx context.Context, host string, t time.Time, exclu
 		SELECT id, time, agent_id, host, os, event_type, severity, source,
 		       pid, ppid, process_name, command_line, image_path, user_name, domain, logon_id,
 		       src_ip, src_port, dst_ip, dst_port, proto,
-		       reg_key, reg_value, file_path, file_hash,
+		       reg_key, reg_value, reg_data, file_path, file_hash,
 		       event_id, channel, record_id
 		FROM events
 		WHERE host = $1 AND time BETWEEN $2 AND $3 AND id != $4
@@ -266,7 +267,7 @@ func scanEvents(rows interface {
 			&e.ID, &e.Time, &e.AgentID, &e.Host, &e.OS, &e.EventType, &e.Severity, &e.Source,
 			&e.PID, &e.PPID, &e.ProcessName, &e.CommandLine, &e.ImagePath, &e.UserName, &e.Domain, &e.LogonID,
 			&e.SrcIP, &e.SrcPort, &e.DstIP, &e.DstPort, &e.Proto,
-			&e.RegKey, &e.RegValue, &e.FilePath, &e.FileHash,
+			&e.RegKey, &e.RegValue, &e.RegData, &e.FilePath, &e.FileHash,
 			&e.EventID, &e.Channel, &e.RecordID,
 		); err != nil {
 			return nil, err

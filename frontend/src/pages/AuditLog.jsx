@@ -14,6 +14,8 @@ const ACTION_COLORS = {
   create_alert_rule:  'text-siem-accent',
   update_alert_rule:  'text-siem-muted',
   delete_alert_rule:  'text-siem-red',
+  assign_alert:       'text-yellow-400',
+  close_alert_review: 'text-siem-muted',
 }
 
 export default function AuditLog() {

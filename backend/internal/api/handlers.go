@@ -209,7 +209,10 @@ func parseEventFilter(r *http.Request) store.EventFilter {
 	if s := q.Get("until");     s != "" { f.Until, _     = time.Parse(time.RFC3339, s) }
 	if s := q.Get("limit");     s != "" { f.Limit, _     = strconv.Atoi(s) }
 	if s := q.Get("offset");    s != "" { f.Offset, _    = strconv.Atoi(s) }
-	if f.Since.IsZero() && f.Until.IsZero() { f.Since = time.Now().Add(-24 * time.Hour) }
+	// all_time=1 searches full history; otherwise default to last 24h
+	if q.Get("all_time") != "1" && f.Since.IsZero() && f.Until.IsZero() {
+		f.Since = time.Now().Add(-24 * time.Hour)
+	}
 	return f
 }
 
