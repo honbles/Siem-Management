@@ -110,14 +110,15 @@ function ProcessNode({proc, depth=0, allEvents, onSelect, selected}) {
   const hasKids = proc.children?.length > 0
   const sev = SEV[proc.maxSeverity]||SEV[1]
   const isSel = selected?._key === proc._key
-  const rel = useMemo(()=>allEvents.filter(e=>(proc.pid&&e.pid===proc.pid)||e.process_name===proc.name),[allEvents,proc])
+  const rel = useMemo(()=>{const n=proc.name?.toLowerCase();const ps=new Set(proc.allPids||[]);return allEvents.filter(e=>(e.process_name&&e.process_name.toLowerCase()===n)||(e.pid&&ps.has(e.pid)))},[allEvents,proc])
   const netN  = rel.filter(e=>e.event_type==='network'||e.event_type==='dns').length
   const fileN = rel.filter(e=>e.event_type==='file').length
   const regN  = rel.filter(e=>e.event_type==='registry').length
   const isBrowser = BROWSERS.has(proc.name?.toLowerCase())
   // DNS events have no process_name — match by pid if available, else show all for browsers
   const allDns = allEvents.filter(e=>e.event_type==='dns'&&e.dst_ip&&isWebDomain(e.dst_ip))
-  const procDns = proc.pid ? allDns.filter(e=>e.pid===proc.pid) : isBrowser ? allDns : []
+  const nodePids = new Set(proc.allPids||[])
+  const procDns = nodePids.size>0 ? allDns.filter(e=>nodePids.has(e.pid)) : isBrowser ? allDns : []
   const webDoms = [...new Set(procDns.map(e=>e.dst_ip))].slice(0,3)
 
   return (
@@ -172,25 +173,37 @@ function ProcessNode({proc, depth=0, allEvents, onSelect, selected}) {
 function ProcessDetail({proc, allEvents, onClose}) {
   const [tab, setTab] = useState('overview')
   if (!proc) return null
-  const rel = allEvents.filter(e=>(proc.pid&&e.pid===proc.pid)||e.process_name===proc.name)
+  // Match events by process name (case-insensitive) OR any known pid for this process
+  const procNameLower = proc.name?.toLowerCase()
+  const pidSet = new Set(proc.allPids||[])
+  const rel = allEvents.filter(e=>
+    (e.process_name&&e.process_name.toLowerCase()===procNameLower) ||
+    (e.pid&&pidSet.has(e.pid))
+  )
   const net  = rel.filter(e=>e.event_type==='network')
   const file = rel.filter(e=>e.event_type==='file')
   const reg  = rel.filter(e=>e.event_type==='registry')
   const sev  = SEV[proc.maxSeverity]||SEV[1]
   const isBrowser = BROWSERS.has(proc.name?.toLowerCase())
   const allDnsEvents = allEvents.filter(e=>e.event_type==='dns'&&e.dst_ip)
-  const dns = proc.pid ? allDnsEvents.filter(e=>e.pid===proc.pid) : isBrowser ? allDnsEvents : []
+  const pidSet2 = new Set(proc.allPids||[])
+  const dns = pidSet2.size>0 ? allDnsEvents.filter(e=>pidSet2.has(e.pid)) : isBrowser ? allDnsEvents : []
   const webVisits = [...new Set(dns.filter(e=>isWebDomain(e.dst_ip)).map(e=>e.dst_ip))]
   const extIPs = [...new Map(net.filter(e=>e.dst_ip&&!e.dst_ip.startsWith('192.168')&&!e.dst_ip.startsWith('10.')).map(e=>[`${e.dst_ip}:${e.dst_port}`,e])).values()]
   const files = [...new Set(file.map(e=>e.file_path).filter(Boolean))]
   const regKeys = reg.slice(0,50)
 
+  const cmdEvents = rel.filter(e=>e.command_line&&e.command_line.trim())
+  const uniqueCmds = [...new Map(cmdEvents.map(e=>[e.command_line.trim(),e])).values()]
+  const isShell = ['powershell.exe','pwsh.exe','cmd.exe','bash.exe','wsl.exe','powershell','cmd','bash'].includes(proc.name?.toLowerCase())
+
   const TABS = [
-    {id:'overview',label:'Overview'},
-    {id:'network', label:'Network', n:net.length+dns.length},
-    {id:'files',   label:'Files',   n:file.length},
-    {id:'registry',label:'Registry',n:reg.length},
-    {id:'timeline',label:'Timeline',n:rel.length},
+    {id:'overview', label:'Overview'},
+    ...(uniqueCmds.length>0||isShell?[{id:'commands',label:'Commands',n:uniqueCmds.length}]:[]),
+    {id:'network',  label:'Network',  n:net.length+dns.length},
+    {id:'files',    label:'Files',    n:file.length},
+    {id:'registry', label:'Registry', n:reg.length},
+    {id:'timeline', label:'Timeline', n:rel.length},
     ...(isBrowser?[{id:'web',label:'Web Activity',n:webVisits.length}]:[]),
   ]
 
@@ -272,6 +285,31 @@ function ProcessDetail({proc, allEvents, onClose}) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {tab==='commands'&&(
+          <div className="p-3">
+            <div className="text-[8px] uppercase tracking-wider text-emerald-400/70 font-semibold mb-2">
+              Commands / Scripts ({uniqueCmds.length})
+            </div>
+            {uniqueCmds.length===0
+              ? <div className="text-center text-siem-muted text-xs py-8">No commands recorded</div>
+              : <div className="space-y-1.5">
+                  {uniqueCmds.map((e,i)=>(
+                    <div key={i} className="bg-siem-bg border border-siem-border/50 rounded p-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[8px] font-mono text-siem-muted/40">{new Date(e.time).toLocaleTimeString()}</span>
+                        {e.user_name&&<span className="text-[8px] text-siem-muted/50">{e.user_name.split('\\').pop()}</span>}
+                        <div className="ml-auto w-1.5 h-1.5 rounded-full shrink-0" style={{background:(SEV[e.severity]||SEV[1]).dot}}/>
+                      </div>
+                      <div className="text-[9px] font-mono text-emerald-300 break-all leading-relaxed whitespace-pre-wrap max-h-32 overflow-y-auto">
+                        {e.command_line.trim()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+            }
           </div>
         )}
 
@@ -468,6 +506,17 @@ function buildTree(events) {
     p.allCommands = [...p.commands].sort()
     p.commandLine = p.allCommands[0]||''
     delete p.commands
+  })
+  // Track all PIDs seen per process name (processes spawn multiple instances)
+  events.filter(e=>e.process_name&&e.pid).forEach(e=>{
+    const key = e.process_name.toLowerCase()
+    if (map[key]) {
+      if (!map[key].allPids) map[key].allPids = new Set()
+      map[key].allPids.add(e.pid)
+    }
+  })
+  Object.values(map).forEach(p=>{
+    p.allPids = p.allPids ? [...p.allPids] : (p.pid ? [p.pid] : [])
   })
   const roots=[], byPid={}
   Object.values(map).forEach(p=>{if(p.pid)byPid[p.pid]=p})
