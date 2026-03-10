@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -152,7 +153,7 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 	db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM events WHERE %s`, whereStr), args...).Scan(&total)
 
 	query := fmt.Sprintf(`
-		SELECT id, time, agent_id, host, os, event_type, severity, source,
+		SELECT id, time, agent_id, host, os, event_type, severity, source, raw,
 		       pid, ppid, process_name, command_line, image_path, user_name, domain, logon_id,
 		       src_ip, src_port, dst_ip, dst_port, proto,
 		       reg_key, reg_value, reg_data, file_path, file_hash,
@@ -170,14 +171,19 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 	var events []Event
 	for rows.Next() {
 		var e Event
+		var rawBytes []byte
 		if err := rows.Scan(
-			&e.ID, &e.Time, &e.AgentID, &e.Host, &e.OS, &e.EventType, &e.Severity, &e.Source,
+			&e.ID, &e.Time, &e.AgentID, &e.Host, &e.OS, &e.EventType, &e.Severity, &e.Source, &rawBytes,
 			&e.PID, &e.PPID, &e.ProcessName, &e.CommandLine, &e.ImagePath, &e.UserName, &e.Domain, &e.LogonID,
 			&e.SrcIP, &e.SrcPort, &e.DstIP, &e.DstPort, &e.Proto,
 			&e.RegKey, &e.RegValue, &e.RegData, &e.FilePath, &e.FileHash,
 			&e.EventID, &e.Channel, &e.RecordID,
 		); err != nil {
 			return nil, 0, err
+		}
+		if rawBytes != nil {
+			e.Raw = json.RawMessage(rawBytes)
+			enrichFromRaw(&e)
 		}
 		events = append(events, e)
 	}
@@ -186,7 +192,7 @@ func (db *DB) QueryEvents(ctx context.Context, f EventFilter) ([]Event, int64, e
 
 func (db *DB) LatestEvents(ctx context.Context, since time.Time, limit int) ([]Event, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, time, agent_id, host, os, event_type, severity, source,
+		SELECT id, time, agent_id, host, os, event_type, severity, source, raw,
 		       pid, ppid, process_name, command_line, image_path, user_name, domain, logon_id,
 		       src_ip, src_port, dst_ip, dst_port, proto,
 		       reg_key, reg_value, reg_data, file_path, file_hash,
@@ -231,7 +237,7 @@ func (db *DB) GetEventByID(ctx context.Context, id string) (*Event, error) {
 
 func (db *DB) RelatedEvents(ctx context.Context, host string, t time.Time, excludeID string) ([]Event, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, time, agent_id, host, os, event_type, severity, source,
+		SELECT id, time, agent_id, host, os, event_type, severity, source, raw,
 		       pid, ppid, process_name, command_line, image_path, user_name, domain, logon_id,
 		       src_ip, src_port, dst_ip, dst_port, proto,
 		       reg_key, reg_value, reg_data, file_path, file_hash,
@@ -263,8 +269,9 @@ func scanEvents(rows interface {
 	var events []Event
 	for rows.Next() {
 		var e Event
+		var rawBytes []byte
 		if err := rows.Scan(
-			&e.ID, &e.Time, &e.AgentID, &e.Host, &e.OS, &e.EventType, &e.Severity, &e.Source,
+			&e.ID, &e.Time, &e.AgentID, &e.Host, &e.OS, &e.EventType, &e.Severity, &e.Source, &rawBytes,
 			&e.PID, &e.PPID, &e.ProcessName, &e.CommandLine, &e.ImagePath, &e.UserName, &e.Domain, &e.LogonID,
 			&e.SrcIP, &e.SrcPort, &e.DstIP, &e.DstPort, &e.Proto,
 			&e.RegKey, &e.RegValue, &e.RegData, &e.FilePath, &e.FileHash,
@@ -272,7 +279,118 @@ func scanEvents(rows interface {
 		); err != nil {
 			return nil, err
 		}
+		if rawBytes != nil {
+			e.Raw = json.RawMessage(rawBytes)
+			enrichFromRaw(&e)
+		}
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+// enrichFromRaw extracts structured fields from the raw JSON blob when the
+// structured columns are NULL. This handles events ingested before the
+// normalizer was fully tuned, or events where Windows event_data keys differ.
+func enrichFromRaw(e *Event) {
+	if e.Raw == nil {
+		return
+	}
+	var r struct {
+		// Top-level fields (Sysmon JSON format)
+		Image       string `json:"Image"`
+		CommandLine string `json:"CommandLine"`
+		User        string `json:"User"`
+		ProcessID   int    `json:"ProcessId"`
+		ParentImage string `json:"ParentImage"`
+		TargetFilename string `json:"TargetFilename"`
+		QueryName   string `json:"query_name"`
+		QueryType   string `json:"query_type"`
+		DestIP      string `json:"DestinationIp"`
+		DestPort    int    `json:"DestinationPort"`
+		SrcIP       string `json:"SourceIp"`
+		SrcPort     int    `json:"SourcePort"`
+		Protocol    string `json:"Protocol"`
+		TargetObject string `json:"TargetObject"`
+		Details     string `json:"Details"`
+		// Nested event_data (Windows EventLog format)
+		EventData map[string]string `json:"event_data"`
+	}
+	if err := json.Unmarshal(e.Raw, &r); err != nil {
+		return
+	}
+
+	// Helper: set *string only if currently nil
+	setStr := func(field **string, val string) {
+		if *field == nil && val != "" {
+			v := val
+			*field = &v
+		}
+	}
+	setInt := func(field *int, val int) {
+		if *field == 0 && val != 0 {
+			*field = val
+		}
+	}
+
+	// Sysmon / direct JSON fields
+	setStr(&e.ProcessName, lastName(r.Image))
+	setStr(&e.ImagePath,   r.Image)
+	setStr(&e.CommandLine, r.CommandLine)
+	setStr(&e.UserName,    lastName(r.User))
+	setStr(&e.FilePath,    r.TargetFilename)
+	setStr(&e.DstIP,       r.DestIP)
+	setStr(&e.SrcIP,       r.SrcIP)
+	setStr(&e.Proto,       r.Protocol)
+	setInt(&e.PID,         r.ProcessID)
+	setInt(&e.DstPort,     r.DestPort)
+	setInt(&e.SrcPort,     r.SrcPort)
+	// DNS: query_name goes into DstIP (convention used by agent)
+	setStr(&e.DstIP, r.QueryName)
+	// Registry
+	setStr(&e.RegKey,   r.TargetObject)
+	setStr(&e.RegValue, r.Details)
+
+	// Windows EventLog event_data map
+	if d := r.EventData; d != nil {
+		setStr(&e.ProcessName, lastName(firstOfMap(d, "NewProcessName","ProcessName","Application")))
+		setStr(&e.ImagePath,   firstOfMap(d, "NewProcessName","ProcessName","Application"))
+		setStr(&e.CommandLine, firstOfMap(d, "CommandLine"))
+		setStr(&e.UserName,    firstOfMap(d, "SubjectUserName","TargetUserName","UserName","User"))
+		setStr(&e.Domain,      firstOfMap(d, "SubjectDomainName","TargetDomainName","Domain"))
+		setStr(&e.FilePath,    firstOfMap(d, "ObjectName","FileName","FilePath","TargetFilename"))
+		setStr(&e.RegKey,      firstOfMap(d, "ObjectName","TargetObject","KeyPath"))
+		setStr(&e.RegValue,    firstOfMap(d, "NewValue","OldValue","Details","ValueName"))
+		setStr(&e.SrcIP,       firstOfMap(d, "IpAddress","SourceAddress","WorkstationName"))
+		setStr(&e.DstIP,       firstOfMap(d, "DestAddress","DestinationIp","TargetServerName"))
+		if v := firstOfMap(d, "SubjectLogonId","TargetLogonId"); v != "" {
+			setStr(&e.LogonID, v)
+		}
+		if v := firstOfMap(d, "SourcePort"); v != "" {
+			if p, err := strconv.Atoi(v); err == nil { setInt(&e.SrcPort, p) }
+		}
+		if v := firstOfMap(d, "DestPort"); v != "" {
+			if p, err := strconv.Atoi(v); err == nil { setInt(&e.DstPort, p) }
+		}
+		if v := firstOfMap(d, "NewProcessId","ProcessId","ProcessID"); v != "" {
+			if pid, err := strconv.ParseInt(strings.TrimPrefix(v, "0x"), 16, 64); err == nil {
+				setInt(&e.PID, int(pid))
+			} else if pid, err := strconv.Atoi(v); err == nil {
+				setInt(&e.PID, pid)
+			}
+		}
+	}
+}
+
+// lastName returns the final component of a backslash-separated path (e.g. process name from full path).
+func lastName(s string) string {
+	if s == "" { return "" }
+	parts := strings.Split(strings.ReplaceAll(s, "\\", "\"), "\")
+	return parts[len(parts)-1]
+}
+
+func firstOfMap(m map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := m[k]; v != "" { return v }
+	}
+	return ""
 }
