@@ -94,7 +94,7 @@ export default function Locations() {
   // ── Fetch agent locations ─────────────────────────────────────────────────
   const fetchLocations = useCallback(async () => {
     try {
-      const data = await api.get('/api/v1/agents/locations')
+      const { data } = await api.get('/api/v1/agents/locations')
       setAgents(Array.isArray(data) ? data : [])
       setError(null)
     } catch (e) {
