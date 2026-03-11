@@ -97,7 +97,20 @@ func (db *DB) AgentStats(ctx context.Context) ([]map[string]interface{}, error) 
 	return results, rows.Err()
 }
 
-// GetAgentByInstallKey looks up an agent by its install key (used by agent on registration).
+// GetAgent fetches a single agent by ID.
+func (db *DB) GetAgent(ctx context.Context, id string) (*Agent, error) {
+	agents, err := db.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range agents {
+		if a.ID == id {
+			return &a, nil
+		}
+	}
+	return nil, fmt.Errorf("agent not found: %s", id)
+}
+
 func (db *DB) GetAgentByInstallKey(ctx context.Context, key string) (*Agent, error) {
 	var a Agent
 	err := db.QueryRowContext(ctx, `

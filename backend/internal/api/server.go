@@ -28,6 +28,7 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	jwt := auth.NewJWTService(cfg.Auth.JWTSecret, cfg.Auth.TokenDuration)
 	hub := NewHub(db, logger)
 	mailer := notify.NewMailer(cfg.SMTP)
+	lrRegistry := NewTunnelRegistry()
 	s := &Server{cfg: cfg, db: db, hub: hub, jwt: jwt, mailer: mailer, logger: logger}
 
 	mux := http.NewServeMux()
@@ -78,6 +79,15 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 
 	// Audit log
 	protected.HandleFunc("GET /api/v1/audit-log",           handleListAuditLog(db))
+
+	// ── Live Response ────────────────────────────────────────────────────────
+	protected.HandleFunc("GET /api/v1/live-response/agents",          handleListLRAgents(db, lrRegistry))
+	protected.HandleFunc("POST /api/v1/live-response/sessions",       handleInitiateSession(db, lrRegistry, logger))
+	protected.HandleFunc("GET /api/v1/live-response/sessions",        handleListSessions(db))
+	protected.HandleFunc("DELETE /api/v1/live-response/sessions/{token}", handleCloseSession(db))
+	protected.HandleFunc("GET /api/v1/live-response/terminal",        handleSessionTerminal(db, lrRegistry, logger))
+	// Agent tunnel — authenticated by API key middleware (same as ingest backend)
+	protected.HandleFunc("GET /api/v1/live-response/agent-tunnel",    handleAgentTunnel(db, lrRegistry, logger))
 
 	// Stats & Threat Intel
 	protected.HandleFunc("GET /api/v1/stats",               handleStats(db))

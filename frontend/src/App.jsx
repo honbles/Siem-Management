@@ -16,6 +16,7 @@ import Search from './pages/Search'
 import Detections from './pages/Detections'
 import ThreatGraph from './pages/ThreatGraph'
 import Locations from './pages/Locations'
+import LiveResponse from './pages/LiveResponse'
 
 function Layout({ user, children }) {
   return (

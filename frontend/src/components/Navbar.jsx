@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Activity, Monitor, Bell, LogOut, Crosshair, BookOpen,
-         Users, ClipboardList, Key, Settings, Search, Zap, GitBranch, Sun, Moon, MapPin } from 'lucide-react'
+         Users, ClipboardList, Key, Settings, Search, Zap, GitBranch, Sun, Moon, MapPin, Terminal } from 'lucide-react'
 import { useTheme } from '../api/useTheme'
 
 const links = [
@@ -11,6 +11,7 @@ const links = [
   { to: '/threat-graph', label: 'Threat Graph', icon: GitBranch },
   { to: '/agents',       label: 'Agents',       icon: Monitor },
   { to: '/locations',    label: 'Locations',    icon: MapPin },
+  { to: '/live-response', label: 'Live Response', icon: Terminal },
   { to: '/alerts',       label: 'Alerts',       icon: Bell },
   { to: '/alert-rules',  label: 'Alert Rules',  icon: BookOpen },
   { to: '/threat-intel', label: 'Threat Intel', icon: Crosshair },
