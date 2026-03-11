@@ -36,7 +36,19 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
+		// Guacamole.WebSocketTunnel appends ?<uuid> to the URL producing
+		// "?token=abc?uuid" — parse the raw query manually and strip the suffix.
+		token := ""
+		for _, part := range strings.Split(r.URL.RawQuery, "&") {
+			if strings.HasPrefix(part, "token=") {
+				v := strings.TrimPrefix(part, "token=")
+				if idx := strings.Index(v, "?"); idx != -1 {
+					v = v[:idx]
+				}
+				token = strings.TrimSpace(v)
+				break
+			}
+		}
 		if token == "" {
 			http.Error(w, "token required", 400)
 			return
