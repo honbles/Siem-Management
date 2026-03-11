@@ -178,128 +178,157 @@ function SSHTerminal({ session, token, onClose }) {
   )
 }
 
-// ── RDP info panel (Windows) ──────────────────────────────────────────────────
-function RDPPanel({ session, onClose }) {
-  const [copied, setCopied] = useState('')
+// ── In-browser RDP via Guacamole.js ──────────────────────────────────────────
+function GuacamoleViewer({ session, onClose }) {
+  const displayRef = useRef(null)
+  const clientRef  = useRef(null)
+  const [status, setStatus] = useState('connecting')
+  const [error,  setError]  = useState(null)
 
-  const copy = (text, key) => {
-    navigator.clipboard.writeText(text)
-    setCopied(key)
-    setTimeout(() => setCopied(''), 2000)
+  useEffect(() => {
+    if (!displayRef.current || !session) return
+
+    let client = null
+
+    const load = async () => {
+      // Load guacamole-common-js from CDN if not already loaded
+      if (!window.Guacamole) {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.0/dist/guacamole-common.min.js'
+          s.onload = res
+          s.onerror = rej
+          document.head.appendChild(s)
+        })
+      }
+
+      const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      const wsUrl   = `${wsProto}://${window.location.host}/api/v1/live-response/guacamole?token=${session.session_token}`
+
+      const tunnel = new window.Guacamole.WebSocketTunnel(wsUrl)
+      client = new window.Guacamole.Client(tunnel)
+      clientRef.current = client
+
+      // Mount display element
+      const el = client.getDisplay().getElement()
+      el.style.width  = '100%'
+      el.style.height = '100%'
+      displayRef.current.innerHTML = ''
+      displayRef.current.appendChild(el)
+
+      // Forward mouse events
+      const mouse = new window.Guacamole.Mouse(el)
+      mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (state) => {
+        client.sendMouseState(state)
+      }
+
+      // Forward keyboard events
+      const keyboard = new window.Guacamole.Keyboard(document)
+      keyboard.onkeydown = (keysym) => client.sendKeyEvent(1, keysym)
+      keyboard.onkeyup   = (keysym) => client.sendKeyEvent(0, keysym)
+
+      // Status handlers
+      client.onstatechange = (state) => {
+        const states = { 0:'idle', 1:'connecting', 2:'waiting', 3:'connected', 4:'disconnecting', 5:'disconnected' }
+        const s = states[state] || 'unknown'
+        setStatus(s)
+        if (state === 3) setError(null)
+      }
+
+      client.onerror = (err) => {
+        setError(err.message || 'Connection error')
+        setStatus('error')
+      }
+
+      // Connect — guacd params come from the server-side handshake
+      client.connect()
+    }
+
+    load().catch(err => {
+      setError(err.message || 'Failed to load Guacamole client')
+      setStatus('error')
+    })
+
+    return () => {
+      if (clientRef.current) {
+        try { clientRef.current.disconnect() } catch {}
+      }
+    }
+  }, [session])
+
+  const disconnect = () => {
+    if (clientRef.current) {
+      try { clientRef.current.disconnect() } catch {}
+    }
+    onClose()
   }
 
-  // Generate .rdp file content
-  const rdpContent = [
-    `full address:s:${session.hostname}`,
-    `username:s:${session.username}`,
-    `authentication level:i:0`,
-    `enablecredsspsupport:i:1`,
-    `screen mode id:i:2`,
-    `use multimon:i:0`,
-    `desktopwidth:i:1920`,
-    `desktopheight:i:1080`,
-    `session bpp:i:32`,
-    `compression:i:1`,
-    `keyboardhook:i:2`,
-    `audiocapturemode:i:0`,
-    `videoplaybackmode:i:1`,
-    `connection type:i:7`,
-    `networkautodetect:i:1`,
-    `bandwidthautodetect:i:1`,
-    `displayconnectionbar:i:1`,
-    `enableworkspacereconnect:i:0`,
-    `disable wallpaper:i:0`,
-    `allow font smoothing:i:0`,
-    `allow desktop composition:i:0`,
-    `disable full window drag:i:1`,
-    `disable menu anims:i:1`,
-    `disable themes:i:0`,
-    `disable cursor setting:i:0`,
-    `bitmapcachepersistenable:i:1`,
-    `redirectprinters:i:0`,
-    `redirectcomports:i:0`,
-    `redirectsmartcards:i:0`,
-    `redirectclipboard:i:1`,
-    `redirectposdevices:i:0`,
-    `autoreconnection enabled:i:1`,
-    `prompt for credentials:i:1`,
-  ].join('\r\n')
-
-  const downloadRDP = () => {
-    const blob = new Blob([rdpContent], { type: 'application/rdp' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${session.hostname}-obsidianwatch.rdp`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+  // Fit display to container on resize
+  useEffect(() => {
+    if (!displayRef.current || !clientRef.current) return
+    const obs = new ResizeObserver(() => {
+      if (!clientRef.current || !displayRef.current) return
+      const { offsetWidth: w, offsetHeight: h } = displayRef.current
+      if (w > 0 && h > 0) clientRef.current.sendSize(w, h)
+    })
+    obs.observe(displayRef.current)
+    return () => obs.disconnect()
+  }, [status])
 
   return (
-    <div className="flex flex-col h-full bg-siem-bg p-6 overflow-y-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-950/40 border border-blue-700 flex items-center justify-center">
-            <Monitor size={20} className="text-blue-400" />
-          </div>
-          <div>
-            <div className="font-semibold text-siem-text">{session.hostname}</div>
-            <div className="text-xs text-siem-muted">Windows RDP Session</div>
-          </div>
+    <div className="flex flex-col h-full bg-black">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-3 py-2 bg-siem-surface border-b border-siem-border shrink-0">
+        <div className="flex items-center gap-2">
+          <Monitor size={14} className="text-blue-400" />
+          <span className="text-sm font-medium text-siem-text">{session.hostname}</span>
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-siem-border text-siem-muted uppercase">RDP</span>
+          {status === 'connected' && (
+            <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              live
+            </span>
+          )}
+          {(status === 'connecting' || status === 'waiting') && (
+            <span className="text-[10px] text-yellow-400 animate-pulse">connecting…</span>
+          )}
         </div>
-        <button onClick={onClose} className="text-siem-muted hover:text-siem-text">
-          <X size={18} />
-        </button>
-      </div>
-
-      <div className="space-y-4 max-w-lg">
-        <div className="p-4 rounded-lg bg-blue-950/20 border border-blue-800">
-          <div className="text-xs font-mono text-blue-300 mb-3 uppercase tracking-wider">Quick Connect</div>
-          <div className="space-y-3">
-            <div>
-              <div className="text-[10px] text-siem-muted mb-1">Host</div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs font-mono bg-siem-bg px-2 py-1.5 rounded border border-siem-border text-siem-text">
-                  {session.hostname}
-                </code>
-                <button onClick={() => copy(session.hostname, 'host')}
-                  className="text-[10px] text-siem-muted hover:text-siem-text px-2 py-1 rounded border border-siem-border">
-                  {copied === 'host' ? '✓' : 'Copy'}
-                </button>
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] text-siem-muted mb-1">Username</div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs font-mono bg-siem-bg px-2 py-1.5 rounded border border-siem-border text-siem-text">
-                  {session.username}
-                </code>
-                <button onClick={() => copy(session.username, 'user')}
-                  className="text-[10px] text-siem-muted hover:text-siem-text px-2 py-1 rounded border border-siem-border">
-                  {copied === 'user' ? '✓' : 'Copy'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <button
-          onClick={downloadRDP}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
-        >
-          <Monitor size={16} />
-          Download .rdp File & Connect
-        </button>
-
-        <div className="p-3 rounded bg-yellow-950/20 border border-yellow-800 text-xs text-yellow-300 space-y-1">
-          <div className="font-medium flex items-center gap-1.5"><AlertTriangle size={11} /> Note</div>
-          <div>Password will be prompted by the RDP client. Use the credential shown on the agent's install panel, or the obsidianwatch account password set during agent deployment.</div>
-        </div>
-
-        <div className="text-[10px] text-siem-muted">
-          Session ID: {session.session_id} · Token: {session.session_token?.slice(0,8)}...
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-siem-muted font-mono">
+            {session.username}@{session.hostname}
+          </span>
+          <button
+            onClick={disconnect}
+            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-red-800 text-red-400 hover:bg-red-950/30"
+          >
+            <Square size={10} /> Disconnect
+          </button>
+          <button onClick={onClose} className="text-siem-muted hover:text-siem-text">
+            <X size={16} />
+          </button>
         </div>
       </div>
+
+      {/* Error overlay */}
+      {error && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
+          <div className="bg-siem-surface border border-red-800 rounded-lg p-6 max-w-sm text-center space-y-3">
+            <AlertTriangle size={24} className="text-red-400 mx-auto" />
+            <div className="text-sm text-red-300">{error}</div>
+            <button onClick={onClose}
+              className="text-xs px-3 py-1.5 rounded bg-siem-bg border border-siem-border text-siem-text hover:bg-siem-surface">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Guacamole display canvas */}
+      <div
+        ref={displayRef}
+        className="flex-1 overflow-hidden cursor-none"
+        style={{ background: '#000' }}
+      />
     </div>
   )
 }
@@ -501,7 +530,7 @@ export default function LiveResponse() {
           activeSession.protocol === 'ssh' ? (
             <SSHTerminal session={activeSession} onClose={closeSession} />
           ) : (
-            <RDPPanel session={activeSession} onClose={closeSession} />
+            <GuacamoleViewer session={activeSession} onClose={closeSession} />
           )
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-siem-muted gap-4">
