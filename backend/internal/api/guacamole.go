@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,21 +15,6 @@ import (
 	"obsidianwatch/management/internal/store"
 )
 
-// handleGuacamole proxies between the browser (Guacamole.js WebSocket) and guacd (TCP).
-//
-// How guacd works:
-//   mgmt-api connects to guacd:4822, does a handshake telling it "RDP target = host:port",
-//   then guacd connects to that host:port and the SAME mgmt-api↔guacd connection becomes
-//   the bidirectional Guacamole protocol stream.
-//
-// Since the agent's RDP port is only reachable through the agent WebSocket tunnel,
-// we open a local TCP listener and tell guacd to connect there. Our listener accepts
-// guacd's RDP connection and pipes it through the agent tunnel.
-//
-// Flow:
-//   Browser <--WS(guacamole protocol)--> mgmt-api <--TCP(guacamole protocol)--> guacd
-//                                                                                  |
-//   Agent RDP (3389) <--agent tunnel--> mgmt-api listener <--TCP(raw RDP)-----> guacd
 func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger) http.HandlerFunc {
 	guacdAddr := "guacd:4822"
 
@@ -68,8 +54,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			return
 		}
 
-		// Open local TCP listener FIRST — guacd will connect here as the RDP target.
-		// Must bind 0.0.0.0 so guacd container can reach it via "mgmt-api" hostname.
+		// Open local TCP listener — guacd connects here as the RDP target
 		listener, err := net.Listen("tcp", "0.0.0.0:0")
 		if err != nil {
 			logger.Error("lr: guac: listener failed", "err", err)
@@ -91,13 +76,12 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			tunnel.mu.Unlock()
 		}()
 
-		// Tell agent to forward its RDP/SSH port through the tunnel
+		// Tell agent to start forwarding
 		tunnel.sendJSON(wireMsg{Type: "forward_port", Token: token})
 
-		// Accept guacd's connection IN A GOROUTINE so we don't block the handshake.
-		// guacd connects to mgmt-api:localPort when it starts the RDP session.
+		// Accept guacd's RDP connection in background (guacd connects after handshake)
 		rdpConnCh := make(chan net.Conn, 1)
-		rdpErrCh := make(chan error, 1)
+		rdpErrCh  := make(chan error, 1)
 		go func() {
 			listener.(*net.TCPListener).SetDeadline(time.Now().Add(20 * time.Second))
 			conn, err := listener.Accept()
@@ -105,11 +89,10 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 				rdpErrCh <- err
 				return
 			}
-			listener.(*net.TCPListener).SetDeadline(time.Time{})
 			rdpConnCh <- conn
 		}()
 
-		// Upgrade browser to WebSocket
+		// Upgrade browser WebSocket
 		upgrader := websocket.Upgrader{
 			CheckOrigin:  func(r *http.Request) bool { return true },
 			Subprotocols: []string{"guacamole"},
@@ -133,17 +116,15 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		}
 		defer guacdConn.Close()
 
-		// Handshake: tell guacd the RDP target is mgmt-api:localPort
-		// guacd will connect to that address to get the RDP stream
 		rdpPort := fmt.Sprintf("%d", localPort)
-		if err := guacdHandshake(guacdConn, session.Protocol, "mgmt-api", rdpPort, username); err != nil {
+		if err := guacdHandshake(guacdConn, session.Protocol, "mgmt-api", rdpPort, username, logger); err != nil {
 			logger.Error("lr: guac: handshake failed", "err", err)
 			browserWS.WriteMessage(websocket.TextMessage, []byte("10.error,16.handshake failed,1.0;"))
 			return
 		}
-		logger.Info("lr: guac: handshake done, waiting for guacd to connect", "port", localPort)
+		logger.Info("lr: guac: handshake done, waiting for guacd rdp connect", "port", localPort)
 
-		// Wait for guacd to connect to our local listener
+		// Wait for guacd to connect to our RDP listener
 		var rdpConn net.Conn
 		select {
 		case rdpConn = <-rdpConnCh:
@@ -155,7 +136,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		}
 		defer rdpConn.Close()
 
-		// Pipe: agent tunnel ↔ guacd RDP socket
+		// Pipe agent tunnel ↔ guacd RDP socket
 		go func() {
 			for data := range dataCh {
 				rdpConn.Write(data)
@@ -179,9 +160,8 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			}
 		}()
 
-		// Proxy: browser WS ↔ guacd Guacamole protocol
+		// Proxy browser WS ↔ guacd Guacamole protocol
 		done := make(chan struct{}, 2)
-
 		go func() {
 			defer func() { done <- struct{}{} }()
 			for {
@@ -194,7 +174,6 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 				}
 			}
 		}()
-
 		go func() {
 			defer func() { done <- struct{}{} }()
 			buf := make([]byte, 32*1024)
@@ -216,9 +195,9 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 }
 
 // guacdHandshake performs the Guacamole protocol handshake.
-// After this guacd connects to host:port to start the RDP/SSH session.
-func guacdHandshake(conn net.Conn, protocol, host, port, username string) error {
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+// Critically: we parse guacd's args list and fill EXACTLY those args by name.
+func guacdHandshake(conn net.Conn, protocol, host, port, username string, logger *slog.Logger) error {
+	conn.SetDeadline(time.Now().Add(15 * time.Second))
 	defer conn.SetDeadline(time.Time{})
 
 	reader := bufio.NewReader(conn)
@@ -228,46 +207,120 @@ func guacdHandshake(conn net.Conn, protocol, host, port, username string) error 
 		return fmt.Errorf("select: %w", err)
 	}
 
-	// 2. Read args
-	argsLine, err := reader.ReadString(';')
-	if err != nil {
-		return fmt.Errorf("read args: %w", err)
-	}
-	_ = argsLine
-
-	// 3. Send size hint
+	// 2. Send client capabilities
 	if _, err := fmt.Fprintf(conn, guacInstr("size", "1280", "800", "96")); err != nil {
 		return fmt.Errorf("size: %w", err)
 	}
-
-	// 4. Send audio/video/image capabilities
 	if _, err := fmt.Fprintf(conn, guacInstr("audio")); err != nil {
 		return fmt.Errorf("audio: %w", err)
 	}
 	if _, err := fmt.Fprintf(conn, guacInstr("video")); err != nil {
 		return fmt.Errorf("video: %w", err)
 	}
-	if _, err := fmt.Fprintf(conn, guacInstr("image", "image/png", "image/jpeg")); err != nil {
+	if _, err := fmt.Fprintf(conn, guacInstr("image", "image/png", "image/jpeg", "image/webp")); err != nil {
 		return fmt.Errorf("image: %w", err)
 	}
-
-	// 5. Connect with RDP params
-	var connectArgs []string
-	if protocol == "rdp" {
-		connectArgs = []string{
-			host, port, username, "",
-			"nla",    // security
-			"true",   // ignore-cert
-			"", "", "", "", "",
-			"true",   // enable-font-smoothing
-			"", "", "", "", "", "", "", "", "",
-			"", "", "", "", "", "", "", "", "",
-		}
-	} else {
-		connectArgs = []string{host, port, username, "", "", ""}
+	if _, err := fmt.Fprintf(conn, guacInstr("timezone", "UTC")); err != nil {
+		return fmt.Errorf("timezone: %w", err)
 	}
 
-	if _, err := fmt.Fprintf(conn, guacInstr("connect", connectArgs...)); err != nil {
+	// 3. Read args from guacd — format: "4.args,N.argname,N.argname,...;"
+	argsLine, err := reader.ReadString(';')
+	if err != nil {
+		return fmt.Errorf("read args: %w", err)
+	}
+	logger.Info("lr: guac: args from guacd", "args", argsLine)
+
+	argNames := parseGuacArgs(argsLine)
+	logger.Info("lr: guac: parsed arg names", "count", len(argNames), "names", argNames)
+
+	// 4. Build connect values keyed by arg name
+	// These are the RDP params guacd 1.6 advertises
+	rdpParams := map[string]string{
+		"hostname":                    host,
+		"port":                        port,
+		"username":                    username,
+		"password":                    "",
+		"domain":                      "",
+		"security":                    "nla",
+		"ignore-cert":                 "true",
+		"disable-auth":                "false",
+		"remote-app":                  "",
+		"remote-app-dir":              "",
+		"remote-app-args":             "",
+		"client-name":                 "ObsidianWatch",
+		"width":                       "1280",
+		"height":                      "800",
+		"dpi":                         "96",
+		"color-depth":                 "24",
+		"cursor":                      "local",
+		"swap-red-blue":               "",
+		"dest-host":                   "",
+		"dest-port":                   "",
+		"recording-path":              "",
+		"recording-name":              "",
+		"recording-exclude-output":    "",
+		"recording-exclude-mouse":     "",
+		"recording-include-keys":      "",
+		"create-recording-path":       "",
+		"enable-sftp":                 "false",
+		"sftp-hostname":               "",
+		"sftp-host-key":               "",
+		"sftp-port":                   "",
+		"sftp-username":               "",
+		"sftp-password":               "",
+		"sftp-private-key":            "",
+		"sftp-passphrase":             "",
+		"sftp-root-directory":         "",
+		"sftp-directory":              "",
+		"sftp-server-alive-interval":  "",
+		"sftp-disable-download":       "",
+		"sftp-disable-upload":         "",
+		"enable-audio":                "true",
+		"static-channels":             "",
+		"clipboard-encoding":          "",
+		"disable-copy":                "",
+		"disable-paste":               "",
+		"normalize-clipboard":         "",
+		"server-layout":               "",
+		"timezone":                    "UTC",
+		"console":                     "",
+		"console-audio":               "",
+		"resize-method":               "display-update",
+		"enable-wallpaper":            "true",
+		"enable-theming":              "true",
+		"enable-font-smoothing":       "true",
+		"enable-full-window-drag":     "true",
+		"enable-desktop-composition":  "true",
+		"enable-menu-animations":      "true",
+		"disable-bitmap-caching":      "",
+		"disable-offscreen-caching":   "",
+		"disable-glyph-caching":       "",
+		"preconnection-id":            "",
+		"preconnection-blob":          "",
+		"load-balance-info":           "",
+		"gateway-hostname":            "",
+		"gateway-port":                "",
+		"gateway-domain":              "",
+		"gateway-username":            "",
+		"gateway-password":            "",
+		"force-lossless":              "",
+		"read-only":                   "",
+		"wol-send-packet":             "",
+		"wol-mac-addr":                "",
+		"wol-broadcast-addr":          "",
+		"wol-udp-port":                "",
+		"wol-wait-time":               "",
+	}
+
+	// Fill args in EXACT order guacd gave us
+	connectVals := make([]string, len(argNames))
+	for i, name := range argNames {
+		connectVals[i] = rdpParams[name] // empty string if unknown arg
+	}
+
+	// 5. Send connect
+	if _, err := fmt.Fprintf(conn, guacInstr("connect", connectVals...)); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 
@@ -276,11 +329,36 @@ func guacdHandshake(conn net.Conn, protocol, host, port, username string) error 
 	if err != nil {
 		return fmt.Errorf("read ready: %w", err)
 	}
+	logger.Info("lr: guac: ready response", "line", readyLine)
 	if !strings.Contains(readyLine, "ready") {
 		return fmt.Errorf("expected ready, got: %s", readyLine)
 	}
 
 	return nil
+}
+
+// parseGuacArgs parses a Guacamole args instruction and returns the arg names.
+// Format: "4.args,N.name1,N.name2,...;"
+func parseGuacArgs(line string) []string {
+	line = strings.TrimSuffix(strings.TrimSpace(line), ";")
+	parts := strings.Split(line, ",")
+	var names []string
+	for i, p := range parts {
+		if i == 0 {
+			continue // skip "4.args"
+		}
+		// Each part is "N.value"
+		dot := strings.Index(p, ".")
+		if dot < 0 {
+			continue
+		}
+		n, err := strconv.Atoi(p[:dot])
+		if err != nil || dot+1+n > len(p) {
+			continue
+		}
+		names = append(names, p[dot+1:dot+1+n])
+	}
+	return names
 }
 
 // guacInstr formats a Guacamole protocol instruction.
