@@ -86,7 +86,6 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	protected.HandleFunc("GET /api/v1/live-response/sessions",            handleListSessions(db))
 	protected.HandleFunc("DELETE /api/v1/live-response/sessions/{token}", handleCloseSession(db))
 	protected.HandleFunc("GET /api/v1/live-response/terminal",            handleSessionTerminal(db, lrRegistry, logger))
-	protected.HandleFunc("GET /api/v1/live-response/guacamole",           handleGuacamole(db, lrRegistry, logger))
 
 	// Stats & Threat Intel
 	protected.HandleFunc("GET /api/v1/stats",               handleStats(db))
@@ -116,6 +115,10 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	agentMux.HandleFunc("GET /api/v1/live-response/agent-tunnel", handleAgentTunnel(db, lrRegistry, logger))
 	agentGuard := auth.AgentKeyMiddleware(cfg.Server.AgentAPIKey)
 	mux.Handle("/api/v1/live-response/agent-tunnel", agentGuard(agentMux))
+
+	// Guacamole — authenticated by session token (valid session = valid auth), not JWT
+	// Must be on public mux because Guacamole.js appends ?<id> to URL breaking JWT param
+	mux.HandleFunc("GET /api/v1/live-response/guacamole", handleGuacamole(db, lrRegistry, logger))
 
 	handler := corsMiddleware(cfg.Server.CORSOrigins)(loggingMiddleware(logger)(mux))
 	s.http = &http.Server{
