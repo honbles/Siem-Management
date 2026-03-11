@@ -3,6 +3,7 @@ import { Terminal, Monitor, Server, Globe, Wifi, WifiOff,
          Play, Square, Clock, User, Shield, AlertTriangle, RefreshCw,
          ChevronRight, X, Activity } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
+import Guacamole from 'guacamole-common-js'
 import api from '../api/client'
 
 // ── OS helpers ────────────────────────────────────────────────────────────────
@@ -191,22 +192,11 @@ function GuacamoleViewer({ session, onClose }) {
     let client = null
 
     const load = async () => {
-      // Load guacamole-common-js from CDN if not already loaded
-      if (!window.Guacamole) {
-        await new Promise((res, rej) => {
-          const s = document.createElement('script')
-          s.src = 'https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.0/dist/guacamole-common.min.js'
-          s.onload = res
-          s.onerror = rej
-          document.head.appendChild(s)
-        })
-      }
-
       const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const wsUrl   = `${wsProto}://${window.location.host}/api/v1/live-response/guacamole?token=${session.session_token}`
 
-      const tunnel = new window.Guacamole.WebSocketTunnel(wsUrl)
-      client = new window.Guacamole.Client(tunnel)
+      const tunnel = new Guacamole.WebSocketTunnel(wsUrl)
+      client = new Guacamole.Client(tunnel)
       clientRef.current = client
 
       // Mount display element
@@ -217,13 +207,13 @@ function GuacamoleViewer({ session, onClose }) {
       displayRef.current.appendChild(el)
 
       // Forward mouse events
-      const mouse = new window.Guacamole.Mouse(el)
+      const mouse = new Guacamole.Mouse(el)
       mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (state) => {
         client.sendMouseState(state)
       }
 
       // Forward keyboard events
-      const keyboard = new window.Guacamole.Keyboard(document)
+      const keyboard = new Guacamole.Keyboard(document)
       keyboard.onkeydown = (keysym) => client.sendKeyEvent(1, keysym)
       keyboard.onkeyup   = (keysym) => client.sendKeyEvent(0, keysym)
 
@@ -245,7 +235,7 @@ function GuacamoleViewer({ session, onClose }) {
     }
 
     load().catch(err => {
-      setError(err.message || 'Failed to load Guacamole client')
+      setError(err.message || 'Failed to connect')
       setStatus('error')
     })
 
