@@ -50,6 +50,7 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 
 	// Agents
 	protected.HandleFunc("GET /api/v1/agents",              handleListAgents(db))
+	protected.HandleFunc("GET /api/v1/agents/locations",     handleGetAgentLocations(db))
 	protected.HandleFunc("GET /api/v1/agents/{id}",         handleGetAgent(db))
 	protected.HandleFunc("PATCH /api/v1/agents/{id}/tamper", handleSetTamperLock(db))
 	protected.HandleFunc("POST /api/v1/agents/{id}/regen-key", handleRegenerateKey(db))
