@@ -16,26 +16,24 @@ import (
 
 // handleGuacamole proxies between the browser (Guacamole.js WebSocket) and guacd (TCP).
 //
-// Architecture:
-//   Browser (Guacamole.js) <--WS--> mgmt-api <--TCP--> guacd <--TCP--> agent RDP port
+// How guacd works:
+//   mgmt-api connects to guacd:4822, does a handshake telling it "RDP target = host:port",
+//   then guacd connects to that host:port and the SAME mgmt-api↔guacd connection becomes
+//   the bidirectional Guacamole protocol stream.
 //
-// guacd connects to the agent's RDP port directly — BUT the agent's RDP port is only
-// reachable via the agent tunnel (WebSocket). So we open a local TCP listener, accept
-// guacd's RDP connection on it, and pipe that to the agent tunnel.
+// Since the agent's RDP port is only reachable through the agent WebSocket tunnel,
+// we open a local TCP listener and tell guacd to connect there. Our listener accepts
+// guacd's RDP connection and pipes it through the agent tunnel.
 //
-// Correct flow:
-//  1. Upgrade browser WebSocket
-//  2. Connect mgmt-api → guacd (control+data on same conn)
-//  3. Tell guacd: "RDP host = mgmt-api, port = localPort"
-//  4. In parallel: accept guacd's inbound RDP connection on localPort
-//  5. Pipe: guacd-rdp-conn ↔ agent tunnel
-//  6. Proxy: browser-WS ↔ guacd-control-conn (Guacamole protocol)
+// Flow:
+//   Browser <--WS(guacamole protocol)--> mgmt-api <--TCP(guacamole protocol)--> guacd
+//                                                                                  |
+//   Agent RDP (3389) <--agent tunnel--> mgmt-api listener <--TCP(raw RDP)-----> guacd
 func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger) http.HandlerFunc {
 	guacdAddr := "guacd:4822"
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Parse token — Guacamole.WebSocketTunnel appends ?<uuid> to URL,
-		// turning ?token=abc into ?token=abc?uuid. Strip it manually.
+		// Parse token — Guacamole.WebSocketTunnel appends ?<uuid> to the URL.
 		token := ""
 		for _, part := range strings.Split(r.URL.RawQuery, "&") {
 			if strings.HasPrefix(part, "token=") {
@@ -52,28 +50,66 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			return
 		}
 
-		// Validate session
 		session, err := db.GetLRSession(r.Context(), token)
 		if err != nil || session.Status == "closed" || session.Status == "failed" {
 			http.Error(w, "invalid or expired session", 400)
 			return
 		}
 
-		// Get agent tunnel
 		tunnel, ok := registry.Get(session.AgentID)
 		if !ok {
 			http.Error(w, "agent tunnel not connected", 503)
 			return
 		}
 
-		// Get credentials
 		username, _, err := db.GetLRCredential(r.Context(), session.AgentID)
 		if err != nil {
 			http.Error(w, "no credentials for agent", 503)
 			return
 		}
 
-		// Step 1: Upgrade browser connection to WebSocket
+		// Open local TCP listener FIRST — guacd will connect here as the RDP target.
+		// Must bind 0.0.0.0 so guacd container can reach it via "mgmt-api" hostname.
+		listener, err := net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			logger.Error("lr: guac: listener failed", "err", err)
+			http.Error(w, "internal error", 500)
+			return
+		}
+		defer listener.Close()
+		localPort := listener.Addr().(*net.TCPAddr).Port
+		logger.Info("lr: guac: rdp listener opened", "port", localPort)
+
+		// Register agent data channel
+		dataCh := make(chan []byte, 512)
+		tunnel.mu.Lock()
+		tunnel.sessions[token] = dataCh
+		tunnel.mu.Unlock()
+		defer func() {
+			tunnel.mu.Lock()
+			delete(tunnel.sessions, token)
+			tunnel.mu.Unlock()
+		}()
+
+		// Tell agent to forward its RDP/SSH port through the tunnel
+		tunnel.sendJSON(wireMsg{Type: "forward_port", Token: token})
+
+		// Accept guacd's connection IN A GOROUTINE so we don't block the handshake.
+		// guacd connects to mgmt-api:localPort when it starts the RDP session.
+		rdpConnCh := make(chan net.Conn, 1)
+		rdpErrCh := make(chan error, 1)
+		go func() {
+			listener.(*net.TCPListener).SetDeadline(time.Now().Add(20 * time.Second))
+			conn, err := listener.Accept()
+			if err != nil {
+				rdpErrCh <- err
+				return
+			}
+			listener.(*net.TCPListener).SetDeadline(time.Time{})
+			rdpConnCh <- conn
+		}()
+
+		// Upgrade browser to WebSocket
 		upgrader := websocket.Upgrader{
 			CheckOrigin:  func(r *http.Request) bool { return true },
 			Subprotocols: []string{"guacamole"},
@@ -88,32 +124,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		db.UpdateLRSessionStatus(r.Context(), token, "active")
 		logger.Info("lr: guac: session started", "agent", session.AgentID, "protocol", session.Protocol, "token", token[:8]+"...")
 
-		// Step 2: Open local listener — guacd will connect here for the RDP data stream
-		listener, err := net.Listen("tcp", "0.0.0.0:0")
-		if err != nil {
-			logger.Error("lr: guac: listener failed", "err", err)
-			browserWS.WriteMessage(websocket.TextMessage, []byte("10.error,14.internal error,1.0;"))
-			return
-		}
-		defer listener.Close()
-		localPort := listener.Addr().(*net.TCPAddr).Port
-		logger.Info("lr: guac: rdp listener opened", "port", localPort)
-
-		// Step 3: Register agent data channel BEFORE telling agent to forward
-		dataCh := make(chan []byte, 512)
-		tunnel.mu.Lock()
-		tunnel.sessions[token] = dataCh
-		tunnel.mu.Unlock()
-		defer func() {
-			tunnel.mu.Lock()
-			delete(tunnel.sessions, token)
-			tunnel.mu.Unlock()
-		}()
-
-		// Tell agent to start forwarding its RDP/SSH port through the tunnel
-		tunnel.sendJSON(wireMsg{Type: "forward_port", Token: token})
-
-		// Step 4: Connect to guacd (this is the Guacamole protocol connection)
+		// Connect to guacd
 		guacdConn, err := net.DialTimeout("tcp", guacdAddr, 10*time.Second)
 		if err != nil {
 			logger.Error("lr: guac: cannot connect to guacd", "err", err)
@@ -122,34 +133,34 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		}
 		defer guacdConn.Close()
 
-		// Step 5: Handshake — tell guacd to connect to mgmt-api:localPort for RDP
-		// guacd will open a NEW TCP connection to mgmt-api:localPort for the actual RDP bytes
-		if err := guacdHandshake(guacdConn, session.Protocol, "mgmt-api", fmt.Sprintf("%d", localPort), username); err != nil {
+		// Handshake: tell guacd the RDP target is mgmt-api:localPort
+		// guacd will connect to that address to get the RDP stream
+		rdpPort := fmt.Sprintf("%d", localPort)
+		if err := guacdHandshake(guacdConn, session.Protocol, "mgmt-api", rdpPort, username); err != nil {
 			logger.Error("lr: guac: handshake failed", "err", err)
 			browserWS.WriteMessage(websocket.TextMessage, []byte("10.error,16.handshake failed,1.0;"))
 			return
 		}
+		logger.Info("lr: guac: handshake done, waiting for guacd to connect", "port", localPort)
 
-		// Step 6: Accept guacd's inbound RDP connection (guacd connects to mgmt-api:localPort)
-		listener.(*net.TCPListener).SetDeadline(time.Now().Add(15 * time.Second))
-		rdpConn, err := listener.Accept()
-		if err != nil {
-			logger.Error("lr: guac: guacd rdp connect timeout", "err", err)
+		// Wait for guacd to connect to our local listener
+		var rdpConn net.Conn
+		select {
+		case rdpConn = <-rdpConnCh:
+			logger.Info("lr: guac: guacd connected for rdp", "port", localPort)
+		case err := <-rdpErrCh:
+			logger.Error("lr: guac: guacd did not connect", "err", err)
 			browserWS.WriteMessage(websocket.TextMessage, []byte("10.error,20.rdp connect timeout,1.0;"))
 			return
 		}
 		defer rdpConn.Close()
-		listener.(*net.TCPListener).SetDeadline(time.Time{}) // clear deadline
-		logger.Info("lr: guac: guacd connected for rdp", "port", localPort)
 
-		// Step 7: Pipe agent tunnel ↔ guacd RDP socket
-		// agent → guacd RDP
+		// Pipe: agent tunnel ↔ guacd RDP socket
 		go func() {
 			for data := range dataCh {
 				rdpConn.Write(data)
 			}
 		}()
-		// guacd RDP → agent
 		go func() {
 			buf := make([]byte, 32*1024)
 			for {
@@ -168,10 +179,9 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			}
 		}()
 
-		// Step 8: Proxy Guacamole protocol — browser WS ↔ guacd control conn
+		// Proxy: browser WS ↔ guacd Guacamole protocol
 		done := make(chan struct{}, 2)
 
-		// Browser → guacd
 		go func() {
 			defer func() { done <- struct{}{} }()
 			for {
@@ -185,7 +195,6 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			}
 		}()
 
-		// guacd → browser
 		go func() {
 			defer func() { done <- struct{}{} }()
 			buf := make([]byte, 32*1024)
@@ -206,68 +215,63 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 	}
 }
 
-// guacdHandshake performs the Guacamole protocol handshake with guacd.
-// After this, guacd will open a NEW TCP connection to host:port to get the RDP stream.
-// See: https://guacamole.apache.org/doc/gug/guacamole-protocol.html
+// guacdHandshake performs the Guacamole protocol handshake.
+// After this guacd connects to host:port to start the RDP/SSH session.
 func guacdHandshake(conn net.Conn, protocol, host, port, username string) error {
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 	defer conn.SetDeadline(time.Time{})
 
 	reader := bufio.NewReader(conn)
 
-	// Send: select <protocol>
+	// 1. Select protocol
 	if _, err := fmt.Fprintf(conn, guacInstr("select", protocol)); err != nil {
 		return fmt.Errorf("select: %w", err)
 	}
 
-	// Read: args response
+	// 2. Read args
 	argsLine, err := reader.ReadString(';')
 	if err != nil {
 		return fmt.Errorf("read args: %w", err)
 	}
-	_ = argsLine // we don't need to parse all args for basic RDP
+	_ = argsLine
 
-	// Build connection args based on protocol
+	// 3. Send size hint
+	if _, err := fmt.Fprintf(conn, guacInstr("size", "1280", "800", "96")); err != nil {
+		return fmt.Errorf("size: %w", err)
+	}
+
+	// 4. Send audio/video/image capabilities
+	if _, err := fmt.Fprintf(conn, guacInstr("audio")); err != nil {
+		return fmt.Errorf("audio: %w", err)
+	}
+	if _, err := fmt.Fprintf(conn, guacInstr("video")); err != nil {
+		return fmt.Errorf("video: %w", err)
+	}
+	if _, err := fmt.Fprintf(conn, guacInstr("image", "image/png", "image/jpeg")); err != nil {
+		return fmt.Errorf("image: %w", err)
+	}
+
+	// 5. Connect with RDP params
 	var connectArgs []string
 	if protocol == "rdp" {
 		connectArgs = []string{
-			host,        // hostname
-			port,        // port
-			"false",     // ignore-cert? No, use NLA
-			username,    // username
-			"",          // password (agent account; NLA handles it)
-			"",          // domain
-			"nla",       // security
-			"true",      // ignore-cert
-			"",          // client-name
-			"1280",      // width
-			"800",       // height
-			"96",        // dpi
-			"en-us-qwerty", // keyboard-layout
-			"",          // timezone
-			"true",      // enable-font-smoothing
-			"true",      // enable-full-window-drag
-			"true",      // enable-desktop-composition
-			"true",      // enable-menu-animations
+			host, port, username, "",
+			"nla",    // security
+			"true",   // ignore-cert
+			"", "", "", "", "",
+			"true",   // enable-font-smoothing
+			"", "", "", "", "", "", "", "", "",
+			"", "", "", "", "", "", "", "", "",
 		}
 	} else {
-		// SSH
-		connectArgs = []string{
-			host,     // hostname
-			port,     // port
-			username, // username
-			"",       // password
-			"",       // private-key
-			"",       // passphrase
-		}
+		connectArgs = []string{host, port, username, "", "", ""}
 	}
 
-	// Send: connect args
 	if _, err := fmt.Fprintf(conn, guacInstr("connect", connectArgs...)); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 
-	// Read: ready response
+	// 6. Read ready
 	readyLine, err := reader.ReadString(';')
 	if err != nil {
 		return fmt.Errorf("read ready: %w", err)
