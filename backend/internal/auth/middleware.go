@@ -11,20 +11,28 @@ type contextKey string
 const ClaimsKey contextKey = "claims"
 
 // Middleware validates the Authorization: Bearer <token> header.
+// For WebSocket connections that can't set headers, also accepts ?auth=<token> query param.
 func Middleware(jwt *JWTService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Try Authorization header first
+			token := ""
 			header := r.Header.Get("Authorization")
-			if header == "" {
+			if header != "" {
+				parts := strings.SplitN(header, " ", 2)
+				if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+					token = parts[1]
+				}
+			}
+			// Fall back to ?auth= query param (used by WebSocket clients)
+			if token == "" {
+				token = r.URL.Query().Get("auth")
+			}
+			if token == "" {
 				http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
 				return
 			}
-			parts := strings.SplitN(header, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-				http.Error(w, `{"error":"invalid authorization format"}`, http.StatusUnauthorized)
-				return
-			}
-			claims, err := jwt.Verify(parts[1])
+			claims, err := jwt.Verify(token)
 			if err != nil {
 				http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
 				return

@@ -193,7 +193,8 @@ function GuacamoleViewer({ session, onClose }) {
 
     const load = async () => {
       const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const wsUrl   = `${wsProto}://${window.location.host}/api/v1/live-response/guacamole?token=${session.session_token}`
+      const jwtToken = localStorage.getItem('token')
+      const wsUrl   = `${wsProto}://${window.location.host}/api/v1/live-response/guacamole?token=${session.session_token}&auth=${jwtToken}`
 
       const tunnel = new Guacamole.WebSocketTunnel(wsUrl)
       client = new Guacamole.Client(tunnel)
