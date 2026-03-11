@@ -384,6 +384,226 @@ var threatSignatures = []ThreatSig{
 				containsAny(fp(ev), ".locked", ".encrypted", ".crypto", ".crypt", ".enc")
 		},
 	},
+
+	// ════════════════════════════════════════════════════════════════════════
+	// ── Linux Detections ─────────────────────────────────────────────────────
+	// ════════════════════════════════════════════════════════════════════════
+
+	// ── Linux Execution ──────────────────────────────────────────────────────
+
+	{
+		ID: "T1059.004", Name: "Linux Shell Pipe Execution",
+		Description: "Shell interpreter executing piped commands from network — common dropper.",
+		Severity: 4, MITRE: "T1059.004", Category: "Execution",
+		Match: func(ev store.Event) bool {
+			if ev.EventType != "process" { return false }
+			isShell := containsAny(proc(ev), "bash", "sh", "zsh", "dash", "ksh")
+			return isShell && containsAny(cl(ev), "| bash", "|bash", "| sh", "|sh", "/tmp/", "/dev/shm", "http://", "https://")
+		},
+	},
+	{
+		ID: "T1059.006", Name: "Python/Perl Reverse Shell",
+		Description: "Python or Perl opening a socket — common reverse shell technique.",
+		Severity: 5, MITRE: "T1059.006", Category: "Execution",
+		Match: func(ev store.Event) bool {
+			if ev.EventType != "process" { return false }
+			isInterp := containsAny(proc(ev), "python", "perl", "ruby", "php", "node")
+			return isInterp && containsAny(cl(ev), "socket", "connect(", "import socket", "exec(", "/dev/tcp", "subprocess")
+		},
+	},
+	{
+		ID: "T1059.004b", Name: "Netcat Reverse Shell",
+		Description: "Netcat with -e or -c flag — classic reverse shell payload.",
+		Severity: 5, MITRE: "T1059.004", Category: "Execution",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(proc(ev), "nc", "ncat", "netcat") &&
+				containsAny(cl(ev), " -e ", " -c ", "--exec", "-e /bin", "-e sh", "-e bash")
+		},
+	},
+	{
+		ID: "T1059.004c", Name: "Executable Dropped in /tmp",
+		Description: "Process spawned from /tmp or /dev/shm — common malware staging.",
+		Severity: 5, MITRE: "T1059.004", Category: "Execution",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" &&
+				(containsAny(img(ev), "/tmp/", "/dev/shm/", "/var/tmp/") ||
+					containsAny(cl(ev), "/tmp/", "/dev/shm/"))
+		},
+	},
+
+	// ── Linux Persistence ────────────────────────────────────────────────────
+
+	{
+		ID: "T1053.003", Name: "Cron Persistence",
+		Description: "Crontab written or modified — common Linux persistence mechanism.",
+		Severity: 4, MITRE: "T1053.003", Category: "Persistence",
+		Match: func(ev store.Event) bool {
+			return (ev.EventType == "file" && containsAny(fp(ev), "/etc/cron", "/var/spool/cron", "crontab")) ||
+				(ev.EventType == "process" && containsAny(cl(ev), "crontab -e", "crontab -l"))
+		},
+	},
+	{
+		ID: "T1543.002", Name: "New Systemd Service",
+		Description: "New systemd unit file written to system directories — persistence.",
+		Severity: 4, MITRE: "T1543.002", Category: "Persistence",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "file" && containsAny(fp(ev),
+				"/etc/systemd/system/", "/usr/lib/systemd/", "/lib/systemd/") &&
+				containsAny(fp(ev), ".service", ".timer", ".socket")
+		},
+	},
+	{
+		ID: "T1546.004", Name: "Shell Profile Backdoor",
+		Description: ".bashrc, .profile, or /etc/profile modified — shell-based persistence.",
+		Severity: 4, MITRE: "T1546.004", Category: "Persistence",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "file" && containsAny(fp(ev),
+				".bashrc", ".bash_profile", ".zshrc", "/etc/profile", "/etc/bash.bashrc")
+		},
+	},
+	{
+		ID: "T1547.006", Name: "Kernel Module Inserted",
+		Description: "insmod/modprobe executed — rootkit or kernel-level persistence.",
+		Severity: 5, MITRE: "T1547.006", Category: "Persistence",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(proc(ev), "insmod", "modprobe") ||
+				containsAny(rawStr(ev), "kernel_module_load")
+		},
+	},
+
+	// ── Linux Privilege Escalation ────────────────────────────────────────────
+
+	{
+		ID: "T1548.001", Name: "SUID Binary Created",
+		Description: "chmod +s or setuid bits set — SUID privilege escalation.",
+		Severity: 4, MITRE: "T1548.001", Category: "Privilege Escalation",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(proc(ev), "chmod") &&
+				containsAny(cl(ev), "+s", "4755", "4777", "u+s")
+		},
+	},
+	{
+		ID: "T1548.001b", Name: "Sudo Shell Escape",
+		Description: "sudo used to spawn a root shell — privilege escalation.",
+		Severity: 4, MITRE: "T1548.001", Category: "Privilege Escalation",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(proc(ev), "sudo") &&
+				containsAny(cl(ev), "sudo su", "sudo bash", "sudo sh", "sudo -s", "sudo -i")
+		},
+	},
+
+	// ── Linux Credential Access ───────────────────────────────────────────────
+
+	{
+		ID: "T1003.008", Name: "/etc/shadow Access",
+		Description: "Direct read of /etc/shadow or credential dumping tools detected.",
+		Severity: 5, MITRE: "T1003.008", Category: "Credential Access",
+		Match: func(ev store.Event) bool {
+			return containsAny(fp(ev)+cl(ev), "/etc/shadow", "/etc/gshadow") ||
+				(ev.EventType == "process" && containsAny(cl(ev), "unshadow", "hashcat", "john --"))
+		},
+	},
+	{
+		ID: "T1110.001b", Name: "SSH Brute Force",
+		Description: "SSH authentication failure detected — possible brute force attack.",
+		Severity: 4, MITRE: "T1110.001", Category: "Credential Access",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "logon" && containsAny(rawStr(ev), "ssh_failed", "Failed password", "invalid user")
+		},
+	},
+	{
+		ID: "T1552.004", Name: "SSH Private Key Access",
+		Description: "Access to SSH private key files — credential theft.",
+		Severity: 4, MITRE: "T1552.004", Category: "Credential Access",
+		Match: func(ev store.Event) bool {
+			return containsAny(fp(ev)+cl(ev), "id_rsa", "id_ed25519", "id_ecdsa", "/.ssh/", ".pem")
+		},
+	},
+
+	// ── Linux Defence Evasion ────────────────────────────────────────────────
+
+	{
+		ID: "T1574.006", Name: "LD_PRELOAD Injection",
+		Description: "LD_PRELOAD or /etc/ld.so.preload set — shared library hijacking.",
+		Severity: 5, MITRE: "T1574.006", Category: "Defence Evasion",
+		Match: func(ev store.Event) bool {
+			return containsAny(fp(ev)+cl(ev)+rawStr(ev), "ld_preload", "ld.so.preload")
+		},
+	},
+	{
+		ID: "T1070.002", Name: "Linux Log Deletion",
+		Description: "System logs deleted or history cleared — attacker covering tracks.",
+		Severity: 5, MITRE: "T1070.002", Category: "Defence Evasion",
+		Match: func(ev store.Event) bool {
+			if ev.EventType == "process" {
+				return containsAny(cl(ev), "rm /var/log", "shred /var/log", "> /var/log",
+					"history -c", "unset HISTFILE", "HISTSIZE=0", "rm -rf /var/log")
+			}
+			return ev.EventType == "file" && containsAny(fp(ev), "/var/log/auth", "/var/log/syslog", "/var/log/secure")
+		},
+	},
+	{
+		ID: "T1222.002", Name: "World-Writable File Created",
+		Description: "chmod 777 executed — permissive file used for staging or evasion.",
+		Severity: 3, MITRE: "T1222.002", Category: "Defence Evasion",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(proc(ev), "chmod") &&
+				containsAny(cl(ev), "777", "a+w", "o+w")
+		},
+	},
+
+	// ── Linux Discovery ───────────────────────────────────────────────────────
+
+	{
+		ID: "T1087.001", Name: "Linux User Enumeration",
+		Description: "Commands used to enumerate local users and sudo rights.",
+		Severity: 2, MITRE: "T1087.001", Category: "Discovery",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(cl(ev),
+				"cat /etc/passwd", "getent passwd", "id -a", "sudo -l", "last ", "lastlog", "w ", "who ")
+		},
+	},
+	{
+		ID: "T1046b", Name: "Linux Network Scanning",
+		Description: "nmap, masscan, or netstat enumeration — network reconnaissance.",
+		Severity: 3, MITRE: "T1046", Category: "Discovery",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(proc(ev)+cl(ev),
+				"nmap", "masscan", "zmap", "arp-scan", "netdiscover")
+		},
+	},
+
+	// ── Linux C2 / Exfiltration ───────────────────────────────────────────────
+
+	{
+		ID: "T1105b", Name: "Curl/Wget Pipe to Shell",
+		Description: "curl or wget piping directly to shell — dropper technique.",
+		Severity: 5, MITRE: "T1105", Category: "Command & Control",
+		Match: func(ev store.Event) bool {
+			if ev.EventType != "process" { return false }
+			return containsAny(proc(ev), "curl", "wget") &&
+				containsAny(cl(ev), "| bash", "|bash", "| sh", "|sh", "| python", "exec(")
+		},
+	},
+	{
+		ID: "T1021.004b", Name: "SSH Tunnel / Port Forward",
+		Description: "SSH -L/-R/-D flag — tunnelling or SOCKS proxy for C2.",
+		Severity: 4, MITRE: "T1021.004", Category: "Command & Control",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && containsAny(proc(ev), "ssh") &&
+				containsAny(cl(ev), " -L ", " -R ", " -D ", "-NfL", "-NfR", "-NfD")
+		},
+	},
+	{
+		ID: "T1048b", Name: "Data Exfiltration via curl POST",
+		Description: "curl sending data with POST/upload flags — possible data exfiltration.",
+		Severity: 3, MITRE: "T1048", Category: "Exfiltration",
+		Match: func(ev store.Event) bool {
+			return ev.EventType == "process" && proc(ev) == "curl" &&
+				containsAny(cl(ev), " -d ", " --data ", " -F ", " -T ", "--upload-file", "-X POST")
+		},
+	},
+
 }
 
 // ── Helper extractors ─────────────────────────────────────────────────────────
@@ -411,6 +631,11 @@ func rk(ev store.Event) string {
 func dstip(ev store.Event) string {
 	if ev.DstIP == nil { return "" }
 	return strings.ToLower(*ev.DstIP)
+}
+
+func rawStr(ev store.Event) string {
+	if ev.Raw == nil { return "" }
+	return strings.ToLower(string(ev.Raw))
 }
 
 func containsAny(s string, subs ...string) bool {

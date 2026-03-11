@@ -83,6 +83,59 @@ const SAVED_QUERIES = [
   { cat: 'File', label: 'Encrypted file extensions',             params: { event_type: 'file', search: '.locked' } },
   { cat: 'File', label: 'High severity file events',             params: { event_type: 'file', severity: '4' } },
 
+
+  // LINUX — Process
+  { cat: 'Linux', label: 'All Linux process events',              params: { event_type: 'process', os: 'linux' } },
+  { cat: 'Linux', label: 'Shell executions (bash/sh/zsh)',        params: { event_type: 'process', search: 'bash' } },
+  { cat: 'Linux', label: 'Python interpreter executions',         params: { event_type: 'process', search: 'python' } },
+  { cat: 'Linux', label: 'Perl executions',                       params: { event_type: 'process', search: 'perl' } },
+  { cat: 'Linux', label: 'Curl / wget commands',                  params: { event_type: 'process', search: 'curl' } },
+  { cat: 'Linux', label: 'Ncat / netcat usage',                   params: { event_type: 'process', search: 'ncat' } },
+  { cat: 'Linux', label: 'chmod +x executions',                   params: { event_type: 'process', command_line: 'chmod' } },
+  { cat: 'Linux', label: 'Process from /tmp',                     params: { event_type: 'process', search: '/tmp/' } },
+  { cat: 'Linux', label: 'Process from /dev/shm',                 params: { event_type: 'process', search: '/dev/shm' } },
+  { cat: 'Linux', label: 'LD_PRELOAD in command line',            params: { event_type: 'process', search: 'ld_preload' } },
+  { cat: 'Linux', label: 'strace / ptrace usage',                 params: { event_type: 'process', search: 'strace' } },
+  { cat: 'Linux', label: 'nmap scanning',                         params: { event_type: 'process', search: 'nmap' } },
+  { cat: 'Linux', label: 'High severity Linux processes',         params: { event_type: 'process', severity: '4' } },
+
+  // LINUX — Privilege / Auth
+  { cat: 'Linux', label: 'All sudo executions',                   params: { event_type: 'process', process_name: 'sudo' } },
+  { cat: 'Linux', label: 'sudo auth failures',                    params: { event_type: 'logon', search: 'sudo_failed' } },
+  { cat: 'Linux', label: 'SSH logins (accepted)',                 params: { event_type: 'logon', search: 'ssh_login' } },
+  { cat: 'Linux', label: 'SSH failures (brute force)',            params: { event_type: 'logon', search: 'ssh_failed' } },
+  { cat: 'Linux', label: 'su / user switching',                   params: { event_type: 'logon', search: 'su_login' } },
+  { cat: 'Linux', label: 'PAM auth failures',                     params: { event_type: 'logon', search: 'pam_auth_failed' } },
+  { cat: 'Linux', label: 'All Linux logon events',                params: { event_type: 'logon', os: 'linux' } },
+  { cat: 'Linux', label: 'User account added',                    params: { event_type: 'logon', search: 'ADD_USER' } },
+  { cat: 'Linux', label: 'User account deleted',                  params: { event_type: 'logon', search: 'DEL_USER' } },
+  { cat: 'Linux', label: 'Root account activity (uid=0)',         params: { event_type: 'process', user_name: 'root' } },
+
+  // LINUX — FIM (File Integrity)
+  { cat: 'Linux', label: 'All FIM events',                        params: { event_type: 'file', source: 'inotify' } },
+  { cat: 'Linux', label: '/etc/passwd modifications',             params: { event_type: 'file', file_path: '/etc/passwd' } },
+  { cat: 'Linux', label: '/etc/shadow modifications',             params: { event_type: 'file', file_path: '/etc/shadow' } },
+  { cat: 'Linux', label: '/etc/sudoers modifications',            params: { event_type: 'file', file_path: '/etc/sudoers' } },
+  { cat: 'Linux', label: 'SSH config changes',                    params: { event_type: 'file', file_path: '/etc/ssh' } },
+  { cat: 'Linux', label: 'Crontab modifications',                 params: { event_type: 'file', file_path: 'cron' } },
+  { cat: 'Linux', label: '/tmp file drops',                       params: { event_type: 'file', file_path: '/tmp/' } },
+  { cat: 'Linux', label: '/dev/shm file drops',                   params: { event_type: 'file', file_path: '/dev/shm' } },
+  { cat: 'Linux', label: 'ld.so.preload changes',                 params: { event_type: 'file', file_path: 'ld.so.preload' } },
+  { cat: 'Linux', label: 'Systemd unit file changes',             params: { event_type: 'file', file_path: 'systemd' } },
+  { cat: 'Linux', label: 'Binary replaced in /usr/bin',           params: { event_type: 'file', file_path: '/usr/bin' } },
+  { cat: 'Linux', label: 'Profile/bashrc modifications',          params: { event_type: 'file', search: '.bashrc' } },
+  { cat: 'Linux', label: 'High severity FIM events',              params: { event_type: 'file', severity: '4' } },
+
+  // LINUX — Audit / Journal
+  { cat: 'Linux', label: 'All auditd events',                     params: { source: 'auditd' } },
+  { cat: 'Linux', label: 'All journald events',                   params: { source: 'journald' } },
+  { cat: 'Linux', label: 'Kernel OOM kills',                      params: { search: 'oom_kill' } },
+  { cat: 'Linux', label: 'Kernel module loads',                   params: { search: 'kernel_module_load' } },
+  { cat: 'Linux', label: 'Cron job executions',                   params: { search: 'cron_exec' } },
+  { cat: 'Linux', label: 'Service failures (systemd)',            params: { search: 'service_failed' } },
+  { cat: 'Linux', label: 'Segfault / crash events',               params: { search: 'segfault' } },
+  { cat: 'Linux', label: 'All Linux health events',               params: { event_type: 'health', os: 'linux' } },
+
   // REGISTRY
   { cat: 'Registry', label: 'All registry events',               params: { event_type: 'registry' } },
   { cat: 'Registry', label: 'Run key modifications',             params: { event_type: 'registry', reg_key: 'CurrentVersion\\Run' } },
