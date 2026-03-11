@@ -2,8 +2,8 @@ package api
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -76,26 +76,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		}
 		_ = passwordHash // guacd uses username; password comes from agent account
 
-		// Open a local TCP listener — guacd will connect to this.
-		// The agent will forward its RDP/SSH port to this listener.
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			logger.Error("lr: guac: failed to open local listener", "err", err)
-			http.Error(w, "could not open local port", 500)
-			return
-		}
-		localPort := listener.Addr().(*net.TCPAddr).Port
-		defer listener.Close()
-
-		logger.Info("lr: guac: local listener opened", "port", localPort, "agent", session.AgentID)
-
-		// Tell the agent to forward its protocol port to our local listener.
-		tunnel.sendJSON(wireMsg{
-			Type:  "forward_port",
-			Token: token,
-		})
-
-		// Register data channel for this session so agent's forwarded bytes arrive here.
+		// Register data channel — agent's forwarded RDP bytes arrive here.
 		dataCh := make(chan []byte, 512)
 		tunnel.mu.Lock()
 		tunnel.sessions[token] = dataCh
@@ -106,18 +87,25 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			tunnel.mu.Unlock()
 		}()
 
-		// Accept the single connection from guacd (with timeout).
-		listener.(*net.TCPListener).SetDeadline(time.Now().Add(10 * time.Second))
-		localConn, err := listener.Accept()
-		if err != nil {
-			// guacd hasn't connected yet — that's fine, we'll use the virtual pipe below
-			logger.Warn("lr: guac: no local connection from guacd", "err", err)
-		}
-		if localConn != nil {
-			defer localConn.Close()
-		}
+		// Tell the agent to start forwarding its RDP/SSH port through the tunnel.
+		tunnel.sendJSON(wireMsg{
+			Type:  "forward_port",
+			Token: token,
+		})
 
-		// Upgrade browser to WebSocket using Guacamole subprotocol
+		// Open a TCP listener that guacd will connect to.
+		// Must bind 0.0.0.0 so guacd (different container) can reach it via "mgmt-api" hostname.
+		listener, err := net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			logger.Error("lr: guac: failed to open local listener", "err", err)
+			http.Error(w, "could not open local port", 500)
+			return
+		}
+		localPort := listener.Addr().(*net.TCPAddr).Port
+		defer listener.Close()
+		logger.Info("lr: guac: local listener opened", "port", localPort, "agent", session.AgentID)
+
+		// Upgrade browser to WebSocket
 		upgrader := websocket.Upgrader{
 			CheckOrigin:  func(r *http.Request) bool { return true },
 			Subprotocols: []string{"guacamole"},
@@ -132,7 +120,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		db.UpdateLRSessionStatus(r.Context(), token, "active")
 		logger.Info("lr: guac: session started", "agent", session.AgentID, "protocol", session.Protocol, "token", token[:8]+"...")
 
-		// Connect to guacd
+		// Connect mgmt-api → guacd (protocol/control connection)
 		guacdConn, err := net.DialTimeout("tcp", guacdHost+":"+guacdPort, 10*time.Second)
 		if err != nil {
 			logger.Error("lr: guac: cannot connect to guacd", "err", err)
@@ -141,26 +129,60 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		}
 		defer guacdConn.Close()
 
-		// Determine the remote host:port the agent is forwarding.
-		// The agent opens RDP/SSH on localhost — it tells us the port via the tunnel.
-		// For now we use a well-known virtual host that guacd will resolve via our proxy.
-		remoteHost := "127.0.0.1"
-		remotePort := "3389"
-		if session.Protocol == "ssh" {
-			remotePort = "22"
+		// Tell guacd to connect to mgmt-api:localPort for the RDP data stream.
+		// guacd is in a separate container — use the Docker service hostname.
+		remoteHost := os.Getenv("MGMT_API_HOST")
+		if remoteHost == "" {
+			remoteHost = "mgmt-api"
 		}
+		remotePort := fmt.Sprintf("%d", localPort)
 
-		// Handshake guacd: select protocol, set connection params.
 		if err := guacdHandshake(guacdConn, session.Protocol, remoteHost, remotePort, username, token); err != nil {
 			logger.Error("lr: guac: handshake failed", "err", err)
 			browserWS.WriteMessage(websocket.TextMessage, []byte("10.error,16.handshake failed,1.0;"))
 			return
 		}
 
-		// Bidirectional proxy: browser WebSocket ↔ guacd TCP
+		// Accept guacd's inbound data connection (guacd connects back to remoteHost:remotePort).
+		listener.(*net.TCPListener).SetDeadline(time.Now().Add(15 * time.Second))
+		rdpConn, err := listener.Accept()
+		if err != nil {
+			logger.Error("lr: guac: guacd did not connect back", "err", err)
+			browserWS.WriteMessage(websocket.TextMessage, []byte("10.error,20.agent tunnel unavailable,1.0;"))
+			return
+		}
+		defer rdpConn.Close()
+		logger.Info("lr: guac: guacd connected to local listener", "port", localPort)
+
+		// Pipe: rdpConn (guacd data socket) ↔ agent tunnel (actual RDP on the endpoint)
+		// agent → guacd: drain dataCh into rdpConn
+		go func() {
+			for data := range dataCh {
+				rdpConn.Write(data)
+			}
+		}()
+		// guacd → agent: read rdpConn, send through tunnel as base64 JSON payload
+		go func() {
+			buf := make([]byte, 32*1024)
+			for {
+				n, err := rdpConn.Read(buf)
+				if n > 0 {
+					payload, _ := json.Marshal(buf[:n])
+					tunnel.sendJSON(wireMsg{
+						Type:    "data",
+						Token:   token,
+						Payload: json.RawMessage(payload),
+					})
+				}
+				if err != nil {
+					return
+				}
+			}
+		}()
+
+		// Proxy: browser WebSocket ↔ guacd protocol connection
 		done := make(chan struct{}, 2)
 
-		// Browser → guacd
 		go func() {
 			defer func() { done <- struct{}{} }()
 			for {
@@ -174,7 +196,6 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			}
 		}()
 
-		// guacd → browser
 		go func() {
 			defer func() { done <- struct{}{} }()
 			buf := make([]byte, 32*1024)
@@ -289,48 +310,3 @@ func guacInstr(opcode string, args ...string) string {
 	return strings.Join(parts, ",") + ";"
 }
 
-// tunnelForwarder creates a local TCP listener, signals the agent to forward
-// through the tunnel, and returns a net.Conn to use as the remote endpoint.
-func tunnelForwarder(tunnel *agentTunnel, token string, dataCh chan []byte) (net.Conn, error) {
-	pr, pw := io.Pipe()
-	go func() {
-		for data := range dataCh {
-			pw.Write(data)
-		}
-		pw.Close()
-	}()
-
-	return &pipeConn{r: pr, w: &tunnelWriter{tunnel: tunnel, token: token}}, nil
-}
-
-// pipeConn implements net.Conn over a pipe (read) and tunnel write.
-type pipeConn struct {
-	r io.Reader
-	w io.Writer
-}
-
-func (c *pipeConn) Read(b []byte) (int, error)  { return c.r.Read(b) }
-func (c *pipeConn) Write(b []byte) (int, error) { return c.w.Write(b) }
-func (c *pipeConn) Close() error                { return nil }
-func (c *pipeConn) LocalAddr() net.Addr         { return &net.TCPAddr{} }
-func (c *pipeConn) RemoteAddr() net.Addr        { return &net.TCPAddr{} }
-func (c *pipeConn) SetDeadline(t time.Time) error      { return nil }
-func (c *pipeConn) SetReadDeadline(t time.Time) error  { return nil }
-func (c *pipeConn) SetWriteDeadline(t time.Time) error { return nil }
-
-type tunnelWriter struct {
-	tunnel *agentTunnel
-	token  string
-}
-
-func (w *tunnelWriter) Write(b []byte) (int, error) {
-	err := w.tunnel.sendJSON(wireMsg{
-		Type:    "data",
-		Token:   w.token,
-		Payload: b,
-	})
-	if err != nil {
-		return 0, err
-	}
-	return len(b), nil
-}
