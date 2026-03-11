@@ -17,6 +17,14 @@ type Agent struct {
 	EventCount   int64     `json:"event_count"`
 	InstallKey   string    `json:"install_key"`
 	TamperLocked bool      `json:"tamper_locked"`
+	// Location
+	Lat              *float64   `json:"lat,omitempty"`
+	Lng              *float64   `json:"lng,omitempty"`
+	LocationAccuracy *float64   `json:"location_accuracy,omitempty"`
+	LocationSource   string     `json:"location_source,omitempty"`
+	LocationCity     string     `json:"location_city,omitempty"`
+	LocationCountry  string     `json:"location_country,omitempty"`
+	LocationUpdated  *time.Time `json:"location_updated,omitempty"`
 	// Computed
 	Online bool `json:"online"`
 }
@@ -26,7 +34,9 @@ func (db *DB) ListAgents(ctx context.Context) ([]Agent, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, hostname, os, version, first_seen, last_seen,
 		       COALESCE(last_ip, ''), event_count,
-		       COALESCE(install_key, ''), COALESCE(tamper_locked, false)
+		       COALESCE(install_key, ''), COALESCE(tamper_locked, false),
+		       lat, lng, location_accuracy, COALESCE(location_source,''),
+		       COALESCE(location_city,''), COALESCE(location_country,''), location_updated
 		FROM agents
 		ORDER BY last_seen DESC
 	`)
@@ -43,6 +53,8 @@ func (db *DB) ListAgents(ctx context.Context) ([]Agent, error) {
 			&a.ID, &a.Hostname, &a.OS, &a.Version,
 			&a.FirstSeen, &a.LastSeen, &a.LastIP, &a.EventCount,
 			&a.InstallKey, &a.TamperLocked,
+			&a.Lat, &a.Lng, &a.LocationAccuracy, &a.LocationSource,
+			&a.LocationCity, &a.LocationCountry, &a.LocationUpdated,
 		); err != nil {
 			return nil, err
 		}
@@ -85,7 +97,20 @@ func (db *DB) AgentStats(ctx context.Context) ([]map[string]interface{}, error) 
 	return results, rows.Err()
 }
 
-// GetAgentByInstallKey looks up an agent by its install key (used by agent on registration).
+// GetAgent fetches a single agent by ID.
+func (db *DB) GetAgent(ctx context.Context, id string) (*Agent, error) {
+	agents, err := db.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range agents {
+		if a.ID == id {
+			return &a, nil
+		}
+	}
+	return nil, fmt.Errorf("agent not found: %s", id)
+}
+
 func (db *DB) GetAgentByInstallKey(ctx context.Context, key string) (*Agent, error) {
 	var a Agent
 	err := db.QueryRowContext(ctx, `
@@ -136,4 +161,51 @@ func (db *DB) RegenerateInstallKey(ctx context.Context, agentID string) (string,
 		RETURNING install_key
 	`, agentID).Scan(&key)
 	return key, err
+}
+
+// UpdateAgentLocation stores the latest known position for an agent.
+func (db *DB) UpdateAgentLocation(ctx context.Context, agentID string, lat, lng, accuracy float64, source, city, country string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE agents
+		SET lat = $2, lng = $3, location_accuracy = $4,
+		    location_source = $5, location_city = $6, location_country = $7,
+		    location_updated = NOW()
+		WHERE id = $1
+	`, agentID, lat, lng, accuracy, source, city, country)
+	return err
+}
+
+// GetAgentLocations returns all agents that have a known location.
+func (db *DB) GetAgentLocations(ctx context.Context) ([]Agent, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, hostname, os, version, first_seen, last_seen,
+		       COALESCE(last_ip,''), event_count,
+		       COALESCE(install_key,''), COALESCE(tamper_locked,false),
+		       lat, lng, location_accuracy, COALESCE(location_source,''),
+		       COALESCE(location_city,''), COALESCE(location_country,''), location_updated
+		FROM agents
+		WHERE lat IS NOT NULL AND lng IS NOT NULL
+		ORDER BY last_seen DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cutoff := time.Now().Add(-2 * time.Minute)
+	var agents []Agent
+	for rows.Next() {
+		var a Agent
+		if err := rows.Scan(
+			&a.ID, &a.Hostname, &a.OS, &a.Version,
+			&a.FirstSeen, &a.LastSeen, &a.LastIP, &a.EventCount,
+			&a.InstallKey, &a.TamperLocked,
+			&a.Lat, &a.Lng, &a.LocationAccuracy, &a.LocationSource,
+			&a.LocationCity, &a.LocationCountry, &a.LocationUpdated,
+		); err != nil {
+			return nil, err
+		}
+		a.Online = a.LastSeen.After(cutoff)
+		agents = append(agents, a)
+	}
+	return agents, rows.Err()
 }

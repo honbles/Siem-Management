@@ -28,6 +28,7 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	jwt := auth.NewJWTService(cfg.Auth.JWTSecret, cfg.Auth.TokenDuration)
 	hub := NewHub(db, logger)
 	mailer := notify.NewMailer(cfg.SMTP)
+	lrRegistry := NewTunnelRegistry()
 	s := &Server{cfg: cfg, db: db, hub: hub, jwt: jwt, mailer: mailer, logger: logger}
 
 	mux := http.NewServeMux()
@@ -50,6 +51,7 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 
 	// Agents
 	protected.HandleFunc("GET /api/v1/agents",              handleListAgents(db))
+	protected.HandleFunc("GET /api/v1/agents/locations",     handleGetAgentLocations(db))
 	protected.HandleFunc("GET /api/v1/agents/{id}",         handleGetAgent(db))
 	protected.HandleFunc("PATCH /api/v1/agents/{id}/tamper", handleSetTamperLock(db))
 	protected.HandleFunc("POST /api/v1/agents/{id}/regen-key", handleRegenerateKey(db))
@@ -78,6 +80,13 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	// Audit log
 	protected.HandleFunc("GET /api/v1/audit-log",           handleListAuditLog(db))
 
+	// ── Live Response ────────────────────────────────────────────────────────
+	protected.HandleFunc("GET /api/v1/live-response/agents",              handleListLRAgents(db, lrRegistry))
+	protected.HandleFunc("POST /api/v1/live-response/sessions",           handleInitiateSession(db, lrRegistry, logger))
+	protected.HandleFunc("GET /api/v1/live-response/sessions",            handleListSessions(db))
+	protected.HandleFunc("DELETE /api/v1/live-response/sessions/{token}", handleCloseSession(db))
+	protected.HandleFunc("GET /api/v1/live-response/terminal",            handleSessionTerminal(db, lrRegistry, logger))
+
 	// Stats & Threat Intel
 	protected.HandleFunc("GET /api/v1/stats",               handleStats(db))
 	protected.HandleFunc("GET /api/v1/threat-intel",        handleThreatIntel(db))
@@ -100,6 +109,12 @@ func New(cfg *config.Config, db *store.DB, logger *slog.Logger) *Server {
 	mux.Handle("/auth/me", guard(protected))
 	mux.Handle("/auth/password", guard(protected))
 	mux.Handle("/ws/", guard(protected))
+
+	// Agent tunnel — authenticated by X-API-Key, not JWT
+	agentMux := http.NewServeMux()
+	agentMux.HandleFunc("GET /api/v1/live-response/agent-tunnel", handleAgentTunnel(db, lrRegistry, logger))
+	agentGuard := auth.AgentKeyMiddleware(cfg.Server.AgentAPIKey)
+	mux.Handle("/api/v1/live-response/agent-tunnel", agentGuard(agentMux))
 
 	handler := corsMiddleware(cfg.Server.CORSOrigins)(loggingMiddleware(logger)(mux))
 	s.http = &http.Server{

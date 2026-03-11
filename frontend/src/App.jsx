@@ -15,6 +15,8 @@ import Settings from './pages/Settings'
 import Search from './pages/Search'
 import Detections from './pages/Detections'
 import ThreatGraph from './pages/ThreatGraph'
+import Locations from './pages/Locations'
+import LiveResponse from './pages/LiveResponse'
 
 function Layout({ user, children }) {
   return (
@@ -72,6 +74,8 @@ export default function App() {
         <Route path="/settings"      element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/search"        element={<ProtectedRoute><Search /></ProtectedRoute>} />
         <Route path="/threat-graph" element={<ThreatGraph />} />
+        <Route path="/locations"      element={<ProtectedRoute><Locations /></ProtectedRoute>} />
+        <Route path="/live-response"  element={<ProtectedRoute><LiveResponse /></ProtectedRoute>} />
           <Route path="/detections"    element={<ProtectedRoute><Detections /></ProtectedRoute>} />
         <Route path="*"             element={<Navigate to="/" replace />} />
       </Routes>

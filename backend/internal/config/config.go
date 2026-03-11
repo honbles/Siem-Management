@@ -21,6 +21,7 @@ type ServerConfig struct {
 	ReadTimeout  time.Duration `yaml:"read_timeout"`
 	WriteTimeout time.Duration `yaml:"write_timeout"`
 	CORSOrigins  []string      `yaml:"cors_origins"`
+	AgentAPIKey  string        `yaml:"agent_api_key"` // shared key agents use for tunnel auth
 }
 
 type DatabaseConfig struct {
