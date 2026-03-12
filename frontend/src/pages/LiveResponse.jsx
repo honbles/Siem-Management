@@ -206,16 +206,16 @@ function GuacamoleViewer({ session, onClose }) {
       displayRef.current.innerHTML = ''
       displayRef.current.appendChild(el)
 
-      // Forward mouse events
+      // Forward mouse events — only when connected (state 3)
       const mouse = new Guacamole.Mouse(el)
       mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (state) => {
-        client.sendMouseState(state)
+        if (client.currentState === 3) client.sendMouseState(state)
       }
 
-      // Forward keyboard events
+      // Forward keyboard events — only when connected
       const keyboard = new Guacamole.Keyboard(document)
-      keyboard.onkeydown = (keysym) => client.sendKeyEvent(1, keysym)
-      keyboard.onkeyup   = (keysym) => client.sendKeyEvent(0, keysym)
+      keyboard.onkeydown = (keysym) => { if (client.currentState === 3) client.sendKeyEvent(1, keysym) }
+      keyboard.onkeyup   = (keysym) => { if (client.currentState === 3) client.sendKeyEvent(0, keysym) }
 
       // Status handlers
       client.onstatechange = (state) => {
