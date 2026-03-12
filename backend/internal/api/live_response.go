@@ -158,9 +158,10 @@ func handleAgentTunnel(db *store.DB, registry *TunnelRegistry, logger *slog.Logg
 				var creds struct {
 					Username     string `json:"username"`
 					PasswordHash string `json:"password_hash"`
+					Password     string `json:"password"`
 				}
 				if err := json.Unmarshal(env.Payload, &creds); err == nil {
-					db.UpsertLRCredential(r.Context(), agentID, creds.Username, creds.PasswordHash)
+					db.UpsertLRCredential(r.Context(), agentID, creds.Username, creds.PasswordHash, creds.Password)
 					logger.Info("lr: credentials registered", "agent", agentID, "user", creds.Username)
 				}
 			}
@@ -195,7 +196,7 @@ func handleInitiateSession(db *store.DB, registry *TunnelRegistry, logger *slog.
 		}
 
 		// Check agent has credentials registered
-		username, _, err := db.GetLRCredential(r.Context(), req.AgentID)
+		username, _, rdpPassword, err := db.GetLRCredential(r.Context(), req.AgentID)
 		if err != nil {
 			writeJSON(w, 503, map[string]string{
 				"error": "Agent has no live response credentials. Ensure agent is running v0.3.1+.",

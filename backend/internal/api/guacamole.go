@@ -48,7 +48,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			return
 		}
 
-		username, _, err := db.GetLRCredential(r.Context(), session.AgentID)
+		username, _, rdpPassword, err := db.GetLRCredential(r.Context(), session.AgentID)
 		if err != nil {
 			http.Error(w, "no credentials for agent", 503)
 			return
@@ -117,7 +117,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		defer guacdConn.Close()
 
 		rdpPort := fmt.Sprintf("%d", localPort)
-		if err := guacdHandshake(guacdConn, session.Protocol, "mgmt-api", rdpPort, username, logger); err != nil {
+		if err := guacdHandshake(guacdConn, session.Protocol, "mgmt-api", rdpPort, username, rdpPassword, logger); err != nil {
 			logger.Error("lr: guac: handshake failed", "err", err)
 			browserWS.WriteMessage(websocket.TextMessage, []byte("10.error,16.handshake failed,1.0;"))
 			return
@@ -196,7 +196,7 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 
 // guacdHandshake performs the Guacamole protocol handshake.
 // Critically: we parse guacd's args list and fill EXACTLY those args by name.
-func guacdHandshake(conn net.Conn, protocol, host, port, username string, logger *slog.Logger) error {
+func guacdHandshake(conn net.Conn, protocol, host, port, username, password string, logger *slog.Logger) error {
 	conn.SetDeadline(time.Now().Add(15 * time.Second))
 	defer conn.SetDeadline(time.Time{})
 
@@ -240,7 +240,7 @@ func guacdHandshake(conn net.Conn, protocol, host, port, username string, logger
 		"hostname":                    host,
 		"port":                        port,
 		"username":                    username,
-		"password":                    "",
+		"password":                    password,
 		"domain":                      "",
 		"security":                    "nla",
 		"ignore-cert":                 "true",

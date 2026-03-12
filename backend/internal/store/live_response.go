@@ -19,28 +19,29 @@ type LRCredential struct {
 
 // UpsertLRCredential stores (or updates) the bcrypt-hashed service account
 // for an agent. Called by the agent on install/reconnect.
-func (db *DB) UpsertLRCredential(ctx context.Context, agentID, username, passwordHash string) error {
+func (db *DB) UpsertLRCredential(ctx context.Context, agentID, username, passwordHash, password string) error {
 	_, err := db.ExecContext(ctx, `
-		INSERT INTO lr_credentials (agent_id, username, password_hash, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
+		INSERT INTO lr_credentials (agent_id, username, password_hash, password, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, NOW(), NOW())
 		ON CONFLICT (agent_id) DO UPDATE SET
 			username      = EXCLUDED.username,
 			password_hash = EXCLUDED.password_hash,
+			password      = EXCLUDED.password,
 			updated_at    = NOW()
-	`, agentID, username, passwordHash)
+	`, agentID, username, passwordHash, password)
 	return err
 }
 
 // GetLRCredential fetches the stored credential for an agent.
-func (db *DB) GetLRCredential(ctx context.Context, agentID string) (username, passwordHash string, err error) {
+func (db *DB) GetLRCredential(ctx context.Context, agentID string) (username, passwordHash, password string, err error) {
 	err = db.QueryRowContext(ctx,
-		`SELECT username, password_hash FROM lr_credentials WHERE agent_id = $1`,
+		`SELECT username, password_hash, COALESCE(password, '') FROM lr_credentials WHERE agent_id = $1`,
 		agentID,
-	).Scan(&username, &passwordHash)
+	).Scan(&username, &passwordHash, &password)
 	if err == sql.ErrNoRows {
-		return "", "", fmt.Errorf("no live response credentials for agent %q", agentID)
+		return "", "", "", fmt.Errorf("no live response credentials for agent %q", agentID)
 	}
-	return username, passwordHash, err
+	return username, passwordHash, password, err
 }
 
 // ListLRCredentials returns which agents have credentials registered.
