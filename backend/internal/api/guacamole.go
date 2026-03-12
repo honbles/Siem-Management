@@ -185,17 +185,26 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		go func() {
 			defer func() { done <- struct{}{} }()
 			reader := bufio.NewReaderSize(guacdConn, 256*1024)
+			var count int
 			for {
-				// Read one complete Guacamole instruction using length-prefix parsing.
-				// Protocol: LENGTH.ELEMENT,LENGTH.ELEMENT,...; (semicolon terminates)
-				// We must parse lengths to avoid splitting on ';' inside base64 data.
 				instruction, err := readGuacInstruction(reader)
 				if len(instruction) > 0 {
+					count++
+					// Log first 5 instructions and every 100th to diagnose display
+					if count <= 5 || count%100 == 0 {
+						preview := string(instruction)
+						if len(preview) > 80 {
+							preview = preview[:80] + "..."
+						}
+						logger.Info("lr: guac: →browser", "n", count, "instr", preview)
+					}
 					if werr := browserWS.WriteMessage(websocket.TextMessage, instruction); werr != nil {
+						logger.Warn("lr: guac: browser write failed", "err", werr, "after", count)
 						return
 					}
 				}
 				if err != nil {
+					logger.Warn("lr: guac: guacd read error", "err", err, "after", count)
 					return
 				}
 			}
