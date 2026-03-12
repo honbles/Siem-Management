@@ -200,16 +200,29 @@ function GuacamoleViewer({ session, onClose }) {
       clientRef.current = client
 
       // Mount display element
-      const el = client.getDisplay().getElement()
-      el.style.width  = '100%'
-      el.style.height = '100%'
+      const display = client.getDisplay()
+      const el = display.getElement()
       displayRef.current.innerHTML = ''
       displayRef.current.appendChild(el)
+
+      // Scale display to fit container whenever the display or container resizes
+      const scaleDisplay = () => {
+        const container = displayRef.current
+        if (!container || !display.getWidth() || !display.getHeight()) return
+        const scaleX = container.offsetWidth  / display.getWidth()
+        const scaleY = container.offsetHeight / display.getHeight()
+        display.scale(Math.min(scaleX, scaleY))
+      }
+      display.onresize = scaleDisplay
+
+      // Also scale on container resize
+      const ro = new ResizeObserver(scaleDisplay)
+      if (displayRef.current) ro.observe(displayRef.current)
 
       // Forward mouse events — only when connected (state 3)
       const mouse = new Guacamole.Mouse(el)
       mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (state) => {
-        if (client.currentState === 3) client.sendMouseState(state)
+        if (client.currentState === 3) client.sendMouseState(state, true)
       }
 
       // Forward keyboard events — only when connected
@@ -218,14 +231,6 @@ function GuacamoleViewer({ session, onClose }) {
       keyboard.onkeyup   = (keysym) => { if (client.currentState === 3) client.sendKeyEvent(0, keysym) }
 
       // Status handlers
-      client.onstatechange = (state) => {
-        const states = { 0:'idle', 1:'connecting', 2:'waiting', 3:'connected', 4:'disconnecting', 5:'disconnected' }
-        const s = states[state] || 'unknown'
-        console.log('[Guacamole] state:', state, s)
-        setStatus(s)
-        if (state === 3) setError(null)
-      }
-
       client.onerror = (err) => {
         console.error('[Guacamole] error:', err)
         setError(err.message || 'Connection error')
@@ -240,6 +245,24 @@ function GuacamoleViewer({ session, onClose }) {
         console.log('[Guacamole] tunnel state:', state)
       }
 
+      // Send actual container dimensions once connected so guacd renders at right resolution
+      client.onstatechange = (state) => {
+        const states = { 0:'idle', 1:'connecting', 2:'waiting', 3:'connected', 4:'disconnecting', 5:'disconnected' }
+        const s = states[state] || 'unknown'
+        console.log('[Guacamole] state:', state, s)
+        setStatus(s)
+        if (state === 3) {
+          setError(null)
+          // Tell guacd the actual render size
+          const container = displayRef.current
+          if (container) {
+            const w = container.offsetWidth  || 1280
+            const h = container.offsetHeight || 800
+            client.sendSize(w, h)
+          }
+        }
+      }
+
       // Connect — guacd params come from the server-side handshake
       console.log('[Guacamole] connecting to:', wsUrl)
       client.connect()
@@ -251,6 +274,7 @@ function GuacamoleViewer({ session, onClose }) {
     })
 
     return () => {
+      ro.disconnect()
       if (clientRef.current) {
         try { clientRef.current.disconnect() } catch {}
       }
