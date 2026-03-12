@@ -196,7 +196,7 @@ func handleInitiateSession(db *store.DB, registry *TunnelRegistry, logger *slog.
 		}
 
 		// Check agent has credentials registered
-		username, _, rdpPassword, err := db.GetLRCredential(r.Context(), req.AgentID)
+		username, _, _, err := db.GetLRCredential(r.Context(), req.AgentID)
 		if err != nil {
 			writeJSON(w, 503, map[string]string{
 				"error": "Agent has no live response credentials. Ensure agent is running v0.3.1+.",

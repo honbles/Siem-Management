@@ -137,9 +137,14 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		defer rdpConn.Close()
 
 		// Pipe agent tunnel ↔ guacd RDP socket
+		// dataCh carries json.RawMessage (base64-encoded []byte from agent's json.Marshal)
+		// Unmarshal each payload to get raw bytes before writing to rdpConn
 		go func() {
-			for data := range dataCh {
-				rdpConn.Write(data)
+			for payload := range dataCh {
+				var raw []byte
+				if err := json.Unmarshal(payload, &raw); err == nil {
+					rdpConn.Write(raw)
+				}
 			}
 		}()
 		go func() {
