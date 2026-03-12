@@ -216,7 +216,7 @@ func handleInitiateSession(db *store.DB, registry *TunnelRegistry, logger *slog.
 		}
 
 		// Check agent tunnel is connected
-		tunnel, connected := registry.Get(req.AgentID)
+		_, connected := registry.Get(req.AgentID)
 		if !connected {
 			writeJSON(w, 503, map[string]string{
 				"error": "Agent tunnel not connected. Agent must be online and running.",
@@ -242,12 +242,6 @@ func handleInitiateSession(db *store.DB, registry *TunnelRegistry, logger *slog.
 			http.Error(w, `{"error":"db error"}`, 500)
 			return
 		}
-
-		// Tell agent to open local proxy for this session
-		tunnel.sendJSON(wireMsg{
-			Type:  "open_session",
-			Token: token,
-		})
 
 		logger.Info("lr: session initiated",
 			"agent", req.AgentID, "session", sessionID,
