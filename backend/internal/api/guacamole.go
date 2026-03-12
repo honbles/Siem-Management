@@ -166,6 +166,8 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		}()
 
 		// Proxy browser WS ↔ guacd Guacamole protocol
+		// IMPORTANT: Guacamole.js requires complete instructions (ending in ';') per WS message.
+		// We must buffer TCP reads from guacd and send one complete instruction at a time.
 		done := make(chan struct{}, 2)
 		go func() {
 			defer func() { done <- struct{}{} }()
@@ -181,13 +183,16 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 		}()
 		go func() {
 			defer func() { done <- struct{}{} }()
-			buf := make([]byte, 32*1024)
+			reader := bufio.NewReaderSize(guacdConn, 256*1024)
 			for {
-				n, err := guacdConn.Read(buf)
-				if err != nil {
-					return
+				// Read one complete Guacamole instruction (terminated by ';')
+				instruction, err := reader.ReadString(';')
+				if len(instruction) > 0 {
+					if werr := browserWS.WriteMessage(websocket.TextMessage, []byte(instruction)); werr != nil {
+						return
+					}
 				}
-				if err := browserWS.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+				if err != nil {
 					return
 				}
 			}
