@@ -221,16 +221,27 @@ function GuacamoleViewer({ session, onClose }) {
       client.onstatechange = (state) => {
         const states = { 0:'idle', 1:'connecting', 2:'waiting', 3:'connected', 4:'disconnecting', 5:'disconnected' }
         const s = states[state] || 'unknown'
+        console.log('[Guacamole] state:', state, s)
         setStatus(s)
         if (state === 3) setError(null)
       }
 
       client.onerror = (err) => {
+        console.error('[Guacamole] error:', err)
         setError(err.message || 'Connection error')
         setStatus('error')
       }
 
+      tunnel.onerror = (err) => {
+        console.error('[Guacamole] tunnel error:', err)
+      }
+
+      tunnel.onstatechange = (state) => {
+        console.log('[Guacamole] tunnel state:', state)
+      }
+
       // Connect — guacd params come from the server-side handshake
+      console.log('[Guacamole] connecting to:', wsUrl)
       client.connect()
     }
 

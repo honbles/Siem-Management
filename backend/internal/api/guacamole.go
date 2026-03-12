@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -185,10 +186,12 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 			defer func() { done <- struct{}{} }()
 			reader := bufio.NewReaderSize(guacdConn, 256*1024)
 			for {
-				// Read one complete Guacamole instruction (terminated by ';')
-				instruction, err := reader.ReadString(';')
+				// Read one complete Guacamole instruction using length-prefix parsing.
+				// Protocol: LENGTH.ELEMENT,LENGTH.ELEMENT,...; (semicolon terminates)
+				// We must parse lengths to avoid splitting on ';' inside base64 data.
+				instruction, err := readGuacInstruction(reader)
 				if len(instruction) > 0 {
-					if werr := browserWS.WriteMessage(websocket.TextMessage, []byte(instruction)); werr != nil {
+					if werr := browserWS.WriteMessage(websocket.TextMessage, instruction); werr != nil {
 						return
 					}
 				}
@@ -206,6 +209,53 @@ func handleGuacamole(db *store.DB, registry *TunnelRegistry, logger *slog.Logger
 
 // guacdHandshake performs the Guacamole protocol handshake.
 // Critically: we parse guacd's args list and fill EXACTLY those args by name.
+// readGuacInstruction reads exactly one complete Guacamole instruction from a bufio.Reader.
+// Guacamole protocol: LENGTH.ELEMENT,LENGTH.ELEMENT,...;
+// We parse lengths explicitly so we never split on ';' inside base64 image data.
+func readGuacInstruction(r *bufio.Reader) ([]byte, error) {
+	var buf []byte
+	first := true
+	for {
+		// Read the length prefix (digits before '.')
+		lenStr, err := r.ReadString('.')
+		if err != nil {
+			return buf, err
+		}
+		buf = append(buf, []byte(lenStr)...)
+		// Parse the length
+		lenStr = lenStr[:len(lenStr)-1] // strip '.'
+		var elemLen int
+		for _, c := range lenStr {
+			if c < '0' || c > '9' {
+				return buf, fmt.Errorf("non-numeric in length: %q", lenStr)
+			}
+			elemLen = elemLen*10 + int(c-'0')
+		}
+		// Read exactly elemLen bytes (the element value)
+		elem := make([]byte, elemLen)
+		if _, err := io.ReadFull(r, elem); err != nil {
+			return buf, err
+		}
+		buf = append(buf, elem...)
+		// Read the terminator: ',' (more elements) or ';' (end of instruction)
+		term, err := r.ReadByte()
+		if err != nil {
+			return buf, err
+		}
+		buf = append(buf, term)
+		if term == ';' {
+			// Check if this was the opcode (first element) — if instruction is just opcode+semicolon it's complete
+			_ = first
+			return buf, nil
+		}
+		first = false
+		// term == ',' → read next element
+		// But wait — after the element, we need the next length prefix
+		// which starts with digits then '.'. Loop continues.
+		_ = first
+	}
+}
+
 func guacdHandshake(conn net.Conn, protocol, host, port, username, password string, logger *slog.Logger) error {
 	conn.SetDeadline(time.Now().Add(15 * time.Second))
 	defer conn.SetDeadline(time.Time{})
