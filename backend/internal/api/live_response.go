@@ -153,6 +153,17 @@ func handleAgentTunnel(db *store.DB, registry *TunnelRegistry, logger *slog.Logg
 					}
 				}
 			}
+			// Handle session_end from agent — close the data channel so guacd gets EOF
+			if env.Type == "session_end" && env.Token != "" {
+				tunnel.mu.Lock()
+				ch, ok := tunnel.sessions[env.Token]
+				if ok {
+					delete(tunnel.sessions, env.Token)
+					close(ch)
+				}
+				tunnel.mu.Unlock()
+				logger.Info("lr: agent signaled session end", "token", env.Token[:8]+"...")
+			}
 			// Handle credential registration from agent
 			if env.Type == "register_credentials" {
 				var creds struct {
