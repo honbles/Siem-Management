@@ -255,7 +255,9 @@ function GuacamoleViewer({ session, onClose }) {
         try { clientRef.current.disconnect() } catch {}
       }
     }
-  }, [session])
+  // Only reconnect when the session token changes, not on every object re-render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.session_token])
 
   const disconnect = () => {
     if (clientRef.current) {
