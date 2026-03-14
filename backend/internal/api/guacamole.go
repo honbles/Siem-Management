@@ -311,7 +311,7 @@ func guacdHandshake(conn net.Conn, protocol, host, port, username, password stri
 		"username":                    username,
 		"password":                    password,
 		"domain":                      "",
-		"security":                    "nla",
+		"security":                    "rdp",
 		"ignore-cert":                 "true",
 		"disable-auth":                "false",
 		"remote-app":                  "",
